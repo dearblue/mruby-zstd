@@ -56,7 +56,7 @@ MRuby::Build.new("host16") do |conf|
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
-end
+end if false
 
 MRuby::Build.new("host64") do |conf|
   toolchain :clang
@@ -72,7 +72,7 @@ MRuby::Build.new("host64") do |conf|
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
-end
+end if false
 
 MRuby::Build.new("host-nan16") do |conf|
   toolchain :clang
@@ -104,7 +104,7 @@ MRuby::Build.new("host-nan32") do |conf|
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
-end
+end if false
 
 MRuby::Build.new("host-word32") do |conf|
   toolchain :clang
@@ -120,7 +120,7 @@ MRuby::Build.new("host-word32") do |conf|
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
-end
+end if false
 
 MRuby::Build.new("host-word64") do |conf|
   toolchain :clang
@@ -136,4 +136,4 @@ MRuby::Build.new("host-word64") do |conf|
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
-end
+end if false

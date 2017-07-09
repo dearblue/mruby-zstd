@@ -984,7 +984,7 @@ dec_initialize(MRB, VALUE self)
 }
 
 static void
-dec_read_args(MRB, VALUE self, size_t *size, VALUE *dest)
+dec_read_args(MRB, VALUE self, intptr_t *size, VALUE *dest)
 {
     mrb_int argc;
     VALUE *argv;
@@ -1041,7 +1041,7 @@ dec_read_args(MRB, VALUE self, size_t *size, VALUE *dest)
 static VALUE
 dec_read(MRB, VALUE self)
 {
-    size_t size;
+    intptr_t size;
     VALUE dest;
     dec_read_args(mrb, self, &size, &dest);
 
@@ -1051,7 +1051,7 @@ dec_read(MRB, VALUE self)
 
     ZSTD_outBuffer bufout = {
         .dst = RSTRING_PTR(dest),
-        .size = RSTRING_CAPA(dest),
+        .size = (size < 0 ? RSTRING_CAPA(dest) : size),
         .pos = 0,
     };
 

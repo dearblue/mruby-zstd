@@ -90,9 +90,43 @@ assert("Zstd:stream decoding4") do
   assert_equal dest.object_id, zstd.read(50, dest).object_id
   assert_equal dest.object_id, zstd.read(nil, dest).object_id
   assert_equal dest.object_id, zstd.read(0, dest).object_id
+  assert_equal nil.object_id, zstd.read(nil, dest).object_id
   zstd.close
 
   true
+end
+
+assert("Zstd - stream processing (huge)") do
+  unless (1 << 28).kind_of?(Integer)
+    skip "[mruby is build with MRB_INT16]"
+  end
+
+  s = "123456789" * 11111111 + "ABCDEFG"
+  d = ""
+  Zstd::Encoder.wrap(d, level: 1) do |zstd|
+    off = 0
+    slicesize = 777777
+    while off < s.bytesize
+      assert_equal zstd, zstd.write(s.byteslice(off, slicesize))
+      off += slicesize
+      slicesize = slicesize * 3 + 7
+    end
+  end
+
+  assert_equal s.hash, Zstd.decode(d, s.bytesize).hash
+  assert_equal s.hash, Zstd.decode(d).hash
+
+  Zstd::Decoder.wrap(d) do |zstd|
+    off = 0
+    slicesize = 3
+    while off < s.bytesize
+      assert_equal s.byteslice(off, slicesize).hash, zstd.read(slicesize).hash
+      off += slicesize
+      slicesize = slicesize * 2 + 3
+    end
+
+    assert_equal nil.hash, zstd.read(slicesize).hash
+  end
 end
 
 assert("Zstd:large stream encoding with IO") do
