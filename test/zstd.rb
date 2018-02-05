@@ -132,7 +132,7 @@ end
 assert("Zstd:large stream encoding with IO") do
   skip "(without mruby-io)" unless Object.const_defined?(:File)
 
-  File.open("/dev/random", "rb") do |src|
+  File.open("/dev/urandom", "rb") do |src|
     File.open("#SAMPLE.rand.zst", "wb") do |dest|
       Zstd.encode(dest) do |z|
         buf = ""
