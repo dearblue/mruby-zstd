@@ -534,6 +534,7 @@ enc_initialize(MRB, VALUE self)
     aux_check_error(mrb, s, "ZSTD_initCStream_advanced");
 
     encoder_set_outport(mrb, self, p, port);
+    encoder_set_outbuf(mrb, self, p, Qnil);
 
     return self;
 }
