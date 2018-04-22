@@ -119,7 +119,7 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
 {
     if (NIL_P(opts)) {
         if (NIL_P(src)) {
-            *pledgedsize = 0;
+            *pledgedsize = ZSTD_CONTENTSIZE_UNKNOWN;
         } else {
             *pledgedsize = RSTRING_LEN(src);
         }
@@ -149,9 +149,9 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
 
         if (NIL_P(src)) {
             mrbx_scanhash(mrb, opts, Qnil, args, MRBX_SCANHASH_ENDOF(args));
-            *pledgedsize = (NIL_P(apledgedsize) ? 0 : mrb_int(mrb, apledgedsize));
-            estimatedsize = (NIL_P(anestimatedsize) ? 0 : mrb_int(mrb, anestimatedsize));
-            if (*pledgedsize != 0 && estimatedsize > *pledgedsize) {
+            *pledgedsize = (NIL_P(apledgedsize) ? ZSTD_CONTENTSIZE_UNKNOWN : mrb_int(mrb, apledgedsize));
+            estimatedsize = (NIL_P(anestimatedsize) ? ZSTD_CONTENTSIZE_UNKNOWN : mrb_int(mrb, anestimatedsize));
+            if (*pledgedsize != ZSTD_CONTENTSIZE_UNKNOWN && estimatedsize > *pledgedsize) {
                 estimatedsize = *pledgedsize;
             }
         } else {
