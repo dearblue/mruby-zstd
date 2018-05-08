@@ -66,27 +66,22 @@ aux_to_strategy(MRB, VALUE astrategy)
     }
 }
 
-/* stdio.h */
-int sprintf(char *str, const char *format, ...);
-
 static void
 aux_zstd_error(MRB, size_t status, const char *mesg)
 {
-    VALUE errcode = mrb_str_buf_new(mrb, 32);
-    sprintf(RSTRING_PTR(errcode), "%d", (int)ZSTD_getErrorCode(status));
-    RSTR_SET_LEN(RSTRING(errcode), strlen(RSTRING_PTR(errcode)));
+    int err = (int)ZSTD_getErrorCode(status);
 
     if (mesg) {
         mrb_raisef(mrb, E_RUNTIME_ERROR,
                    "%S failed - %S (code:%S)",
                    mrb_str_new_cstr(mrb, mesg),
                    mrb_str_new_cstr(mrb, ZSTD_getErrorName(status)),
-                   errcode);
+                   mrb_fixnum_value(err));
     } else {
         mrb_raisef(mrb, E_RUNTIME_ERROR,
                    "zstd error - %S (code:%S)",
                    mrb_str_new_cstr(mrb, ZSTD_getErrorName(status)),
-                   errcode);
+                   mrb_fixnum_value(err));
     }
 }
 
