@@ -18,6 +18,12 @@
 #define MRBX_SCANHASH_ELEMENTOF(v) (sizeof((v)) / sizeof((v)[0]))
 #define MRBX_SCANHASH_ENDOF(v) ((v) + MRBX_SCANHASH_ELEMENTOF(v))
 
+/* check the later mruby-1.4.1 (it's means pre mruby-2.0?) */
+#include <mruby/object.h>
+#ifndef MRB_FL_OBJ_IS_FROZEN
+#   define mrb_hash_empty_p(MRB, HASH)  mrb_bool(mrb_hash_empty_p(MRB, HASH))
+#endif
+
 #if defined(__cplusplus)
 #   define MRBX_SCANHASH_CEXTERN         extern "C"
 #   define MRBX_SCANHASH_CEXTERN_BEGIN   MRBX_SCANHASH_CEXTERN {
@@ -251,7 +257,7 @@ mrbx_scanhash(mrb_state *mrb, mrb_value hash, mrb_value rest, struct mrbx_scanha
     mrbx_scanhash_setdefaults(args, end);
 
     hash = mrbx_scanhash_to_hash(mrb, hash);
-    if (!mrb_nil_p(hash) && !mrb_bool(mrb_hash_empty_p(mrb, hash))) {
+    if (!mrb_nil_p(hash) && !mrb_hash_empty_p(mrb, hash)) {
         struct mrbx_scanhash_args argset = { args, end, rest };
         mrbx_hash_foreach(mrb, hash, mrbx_scanhash_foreach, &argset);
     }
