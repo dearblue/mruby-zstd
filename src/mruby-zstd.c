@@ -123,7 +123,7 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
         *dict = Qnil;
     } else {
         uint64_t estimatedsize;
-        VALUE level, nocontentsize, nochecksum, nodictid, anestimatedsize, apledgedsize,
+        VALUE level, contentsize, checksum, nodictid, anestimatedsize, apledgedsize,
               windowlog, chainlog, hashlog, searchlog, searchlength, targetlength, strategy;
         struct mrbx_scanhash_arg args[] = {
             MRBX_SCANHASH_ARGS("level",         &level,             Qnil),
@@ -135,8 +135,8 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
             MRBX_SCANHASH_ARGS("searchlength",  &searchlength,      Qnil),
             MRBX_SCANHASH_ARGS("targetlength",  &targetlength,      Qnil),
             MRBX_SCANHASH_ARGS("strategy",      &strategy,          Qnil),
-            MRBX_SCANHASH_ARGS("nocontentsize", &nocontentsize,     Qnil),
-            MRBX_SCANHASH_ARGS("nochecksum",    &nochecksum,        Qnil),
+            MRBX_SCANHASH_ARGS("contentsize",   &contentsize,       Qnil),
+            MRBX_SCANHASH_ARGS("checksum",      &checksum,          Qnil),
             MRBX_SCANHASH_ARGS("nodictid",      &nodictid,          Qnil),
             MRBX_SCANHASH_ARGS("estimatedsize", &anestimatedsize,   Qnil),
             MRBX_SCANHASH_ARGS("pledgedsize",   &apledgedsize,      Qnil),
@@ -171,9 +171,9 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
         if (!NIL_P(targetlength)) { params->cParams.targetLength = mrb_int(mrb, targetlength); }
         if (!NIL_P(strategy)) { params->cParams.strategy = aux_to_strategy(mrb, strategy); }
 
-        if (!NIL_P(nocontentsize)) { params->fParams.contentSizeFlag = (mrb_bool(nocontentsize) ? 1 : 0); }
-        if (!NIL_P(nochecksum)) { params->fParams.checksumFlag = (mrb_bool(nochecksum) ? 1 : 0); }
-        if (!NIL_P(nodictid)) { params->fParams.noDictIDFlag = (mrb_bool(nodictid) ? 0 : 1); }
+        if (!NIL_P(contentsize)) { params->fParams.contentSizeFlag = (mrb_bool(contentsize) ? 1 : 0); }
+        if (!NIL_P(checksum)) { params->fParams.checksumFlag = (mrb_bool(checksum) ? 1 : 0); }
+        if (!NIL_P(nodictid)) { params->fParams.noDictIDFlag = (mrb_bool(nodictid) ? 1 : 0); }
     }
 }
 
