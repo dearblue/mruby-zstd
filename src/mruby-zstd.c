@@ -958,7 +958,7 @@ dec_initialize(MRB, VALUE self)
         p->zstd.bufin.size = RSTRING_LEN(p->io);
         p->zstd.bufin.pos = 0;
     } else {
-#if MRB_INT16
+#ifdef MRB_INT16
         decoder_set_inbuf(mrb, self, p, mrb_str_buf_new(mrb, MRUBY_ZSTD_DEFAULT_PARTIAL_SIZE));
 #else
         decoder_set_inbuf(mrb, self, p, mrb_str_buf_new(mrb, ZSTD_DStreamInSize()));
