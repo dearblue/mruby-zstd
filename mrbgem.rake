@@ -14,7 +14,6 @@ MRuby::Gem::Specification.new("mruby-zstd") do |s|
 
   if cc.command =~ /\b(?:g?cc|clang)\d*\b/
     cc.flags <<
-      "-Wall" <<
       "-Wno-shift-negative-value" <<
       "-Wno-shift-count-negative" <<
       "-Wno-shift-count-overflow" <<
