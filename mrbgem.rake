@@ -10,7 +10,7 @@ using MrubyZstdInternals
 
 MRuby::Gem::Specification.new("mruby-zstd") do |s|
   s.summary  = "mruby bindings for zstd the data compression library (unofficial)"
-  s.version  = "0.1"
+  s.version = File.read(File.join(File.dirname(__FILE__), "README.md")).scan(/^\s*[\-\*] version:\s*(\d+(?:\.\d+)+)/i).flatten[-1]
   s.license  = "BSD-2-Clause"
   s.author   = "dearblue"
   s.homepage = "https://github.com/dearblue/mruby-zstd"
