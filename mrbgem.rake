@@ -1,3 +1,13 @@
+module MrubyZstdInternals
+  refine Array do
+    def configure_defined?(d)
+      flatten.any? { |x| x.partition("=")[0] == d }
+    end
+  end
+end
+
+using MrubyZstdInternals
+
 MRuby::Gem::Specification.new("mruby-zstd") do |s|
   s.summary  = "mruby bindings for zstd the data compression library (unofficial)"
   s.version  = "0.1"
@@ -8,7 +18,8 @@ MRuby::Gem::Specification.new("mruby-zstd") do |s|
   add_dependency "mruby-string-ext"
   add_dependency "mruby-error"
 
-  unless cc.defines.flatten.include?("MRB_INT16")
+  unless cc.defines.configure_defined?("MRB_INT16") ||
+         cc.defines.configure_defined?("MRUBY_ZSTD_TEST_WITHOUT_IO")
     add_test_dependency "mruby-io"
   end
 
@@ -33,7 +44,7 @@ MRuby::Gem::Specification.new("mruby-zstd") do |s|
     File.join(dir, "contrib/zstd/lib/compress"),
     File.join(dir, "contrib/zstd/lib/dictBuilder")
 
-  if cc.defines.flatten.include?("ZSTD_LEGACY_SUPPORT")
+  if cc.defines.configure_defined?("ZSTD_LEGACY_SUPPORT")
     dirp = dir.gsub(/[\[\]\{\}\,]/) { |m| "\\#{m}" }
     files = "contrib/zstd/lib/legacy/**/*.c"
     objs.concat(Dir.glob(File.join(dirp, files)).map { |f|

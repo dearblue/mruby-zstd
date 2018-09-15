@@ -9,60 +9,32 @@ unless Object.const_defined?(:MRUBY_RELEASE_NO)
   end
 end
 
-MRuby::Build.new do |conf|
-  toolchain :gcc
+{
+  "host" => {
+    "defines" => "MRB_INT32",
+  },
+  "host64-with-legacy" => {
+    "defines" => ["MRB_INT64", "ZSTD_LEGACY_SUPPORT"],
+  },
+  "host16" => {
+    "defines" => "MRB_INT16",
+  }
+}.each_pair do |name, c|
+  MRuby::Build.new(name) do |conf|
+    toolchain :gcc
 
-  conf.build_dir = "host32"
+    conf.build_dir = c["build_dir"] || name
 
-  cc.defines << "ZSTD_LEGACY_SUPPORT"
+    enable_debug
+    enable_test
 
-  enable_debug
-  enable_test
+    cc.defines = [*c["defines"], "_BSD_SOURCE", "MRUBY_ZSTD_TEST_WITHOUT_IO"]
+    cc.flags << "-Wall" << "-std=c11" << "-Wno-declaration-after-statement"
+    cc.command = "gcc-7"
+    cxx.command = "g++-7"
 
-  cc.defines = %w(MRB_INT32)
-  cc.flags << "-Wall" << "-std=c11" << "-Wno-declaration-after-statement"
-  cc.command = "gcc-7"
-  cxx.command = "g++-7"
-
-  gem core: "mruby-print"
-  gem core: "mruby-bin-mrbc"
-  gem File.dirname(__FILE__)
-end
-
-MRuby::Build.new("host64-with-legacy") do |conf|
-  toolchain :gcc
-
-  conf.build_dir = conf.name
-
-  cc.defines << "ZSTD_LEGACY_SUPPORT"
-
-  enable_debug
-  enable_test
-
-  cc.defines = %w(MRB_INT64)
-  cc.flags << "-Wall" << "-std=c11" << "-Wno-declaration-after-statement"
-  cc.command = "gcc-7"
-  cxx.command = "g++-7"
-
-  gem core: "mruby-print"
-  gem core: "mruby-bin-mrbc"
-  gem File.dirname(__FILE__)
-end
-
-MRuby::Build.new("host16") do |conf|
-  toolchain :gcc
-
-  conf.build_dir = conf.name
-
-  enable_debug
-  enable_test
-
-  cc.defines = %w(MRB_INT16)
-  cc.flags << "-Wall" << "-std=c11" << "-Wno-declaration-after-statement"
-  cc.command = "gcc-7"
-  cxx.command = "g++-7"
-
-  gem core: "mruby-print"
-  gem core: "mruby-bin-mrbc"
-  gem File.dirname(__FILE__)
+    gem core: "mruby-print"
+    gem core: "mruby-bin-mrbc"
+    gem File.dirname(__FILE__)
+  end
 end
