@@ -66,27 +66,22 @@ aux_to_strategy(MRB, VALUE astrategy)
     }
 }
 
-/* stdio.h */
-int sprintf(char *str, const char *format, ...);
-
 static void
 aux_zstd_error(MRB, size_t status, const char *mesg)
 {
-    VALUE errcode = mrb_str_buf_new(mrb, 32);
-    sprintf(RSTRING_PTR(errcode), "%d", (int)ZSTD_getErrorCode(status));
-    RSTR_SET_LEN(RSTRING(errcode), strlen(RSTRING_PTR(errcode)));
+    int err = (int)ZSTD_getErrorCode(status);
 
     if (mesg) {
         mrb_raisef(mrb, E_RUNTIME_ERROR,
                    "%S failed - %S (code:%S)",
                    mrb_str_new_cstr(mrb, mesg),
                    mrb_str_new_cstr(mrb, ZSTD_getErrorName(status)),
-                   errcode);
+                   mrb_fixnum_value(err));
     } else {
         mrb_raisef(mrb, E_RUNTIME_ERROR,
                    "zstd error - %S (code:%S)",
                    mrb_str_new_cstr(mrb, ZSTD_getErrorName(status)),
-                   errcode);
+                   mrb_fixnum_value(err));
     }
 }
 
@@ -128,7 +123,7 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
         *dict = Qnil;
     } else {
         uint64_t estimatedsize;
-        VALUE level, nocontentsize, nochecksum, nodictid, anestimatedsize, apledgedsize,
+        VALUE level, contentsize, checksum, nodictid, anestimatedsize, apledgedsize,
               windowlog, chainlog, hashlog, searchlog, searchlength, targetlength, strategy;
         struct mrbx_scanhash_arg args[] = {
             MRBX_SCANHASH_ARGS("level",         &level,             Qnil),
@@ -140,8 +135,8 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
             MRBX_SCANHASH_ARGS("searchlength",  &searchlength,      Qnil),
             MRBX_SCANHASH_ARGS("targetlength",  &targetlength,      Qnil),
             MRBX_SCANHASH_ARGS("strategy",      &strategy,          Qnil),
-            MRBX_SCANHASH_ARGS("nocontentsize", &nocontentsize,     Qnil),
-            MRBX_SCANHASH_ARGS("nochecksum",    &nochecksum,        Qnil),
+            MRBX_SCANHASH_ARGS("contentsize",   &contentsize,       Qnil),
+            MRBX_SCANHASH_ARGS("checksum",      &checksum,          Qnil),
             MRBX_SCANHASH_ARGS("nodictid",      &nodictid,          Qnil),
             MRBX_SCANHASH_ARGS("estimatedsize", &anestimatedsize,   Qnil),
             MRBX_SCANHASH_ARGS("pledgedsize",   &apledgedsize,      Qnil),
@@ -176,9 +171,9 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
         if (!NIL_P(targetlength)) { params->cParams.targetLength = mrb_int(mrb, targetlength); }
         if (!NIL_P(strategy)) { params->cParams.strategy = aux_to_strategy(mrb, strategy); }
 
-        if (!NIL_P(nocontentsize)) { params->fParams.contentSizeFlag = (mrb_bool(nocontentsize) ? 1 : 0); }
-        if (!NIL_P(nochecksum)) { params->fParams.checksumFlag = (mrb_bool(nochecksum) ? 1 : 0); }
-        if (!NIL_P(nodictid)) { params->fParams.noDictIDFlag = (mrb_bool(nodictid) ? 0 : 1); }
+        if (!NIL_P(contentsize)) { params->fParams.contentSizeFlag = (mrb_bool(contentsize) ? 1 : 0); }
+        if (!NIL_P(checksum)) { params->fParams.checksumFlag = (mrb_bool(checksum) ? 1 : 0); }
+        if (!NIL_P(nodictid)) { params->fParams.noDictIDFlag = (mrb_bool(nodictid) ? 1 : 0); }
     }
 }
 
@@ -963,7 +958,7 @@ dec_initialize(MRB, VALUE self)
         p->zstd.bufin.size = RSTRING_LEN(p->io);
         p->zstd.bufin.pos = 0;
     } else {
-#if MRB_INT16
+#ifdef MRB_INT16
         decoder_set_inbuf(mrb, self, p, mrb_str_buf_new(mrb, MRUBY_ZSTD_DEFAULT_PARTIAL_SIZE));
 #else
         decoder_set_inbuf(mrb, self, p, mrb_str_buf_new(mrb, ZSTD_DStreamInSize()));

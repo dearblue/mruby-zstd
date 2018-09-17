@@ -1,17 +1,14 @@
 # mruby-zstd : mruby bindings for zstd the compression library (unofficial)
 
-  * Product name: [mruby-zstd](https://github.com/dearblue/mruby-zstd)
-  * Version: 0.1
-  * Product quality: PROTOTYPE
-  * Author: [dearblue](https://github.com/dearblue)
-  * Report issue to: <https://github.com/dearblue/mruby-zstd/issues>
-  * Licensing: BSD-2-Clause License
-  * Dependency external mrbgems: (NONE)
-  * Bundled C libraries (git-submodule'd):
-      * [zstd-1.3.0](https://github.com/facebook/zstd)
-        under [BSD-3-Clause License](https://github.com/facebook/zstd/blob/v1.3.0/LICENSE)
-        by [Facebook](https://github.com/facebook)
+## HOW TO INSTALL
 
+`build_config.rb` に `gem mgem: "mruby-zstd"` を追加して下さい。
+
+```ruby
+MRuby::Build.new do |conf|
+  gem mgem: "mruby-zstd"
+end
+```
 
 ## HOW TO USAGE
 
@@ -89,3 +86,18 @@ end
 ```
 
 既定値は、MRB_INT_16 が定義された場合は 4 KiB、それ以外の場合は 1 MiB となっています。
+
+
+## Specification
+
+  * Product name: [mruby-zstd](https://github.com/dearblue/mruby-zstd)
+  * Version: 0.2
+  * Product quality: PROTOTYPE
+  * Author: [dearblue](https://github.com/dearblue)
+  * Report issue to: <https://github.com/dearblue/mruby-zstd/issues>
+  * Licensing: [2 clause BSD License](LICENSE)
+  * Dependency external mrbgems: (NONE)
+  * Bundled C libraries (git-submodule'd):
+      * [zstd-1.3.5](https://github.com/facebook/zstd)
+        under [3 clause BSD License](https://github.com/facebook/zstd/blob/v1.3.5/LICENSE)
+        by [Facebook](https://github.com/facebook)
