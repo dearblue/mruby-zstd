@@ -17,6 +17,7 @@ MRuby::Gem::Specification.new("mruby-zstd") do |s|
 
   add_dependency "mruby-string-ext"
   add_dependency "mruby-error"
+  add_dependency "mruby-aux", github: "dearblue/mruby-aux"
 
   unless cc.defines.configure_defined?("MRB_INT16") ||
          cc.defines.configure_defined?("MRUBY_ZSTD_TEST_WITHOUT_IO")
