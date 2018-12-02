@@ -980,32 +980,9 @@ dec_initialize(MRB, VALUE self)
 }
 
 static void
-dec_read_args(MRB, VALUE self, intptr_t *size, VALUE *dest)
+dec_read_args(MRB, VALUE self, intptr_t *size, struct RString **dest)
 {
-    mrb_int argc;
-    VALUE *argv;
-    mrb_get_args(mrb, "*", &argv, &argc);
-
-    switch (argc) {
-    case 2:
-        *size = (NIL_P(argv[0]) ? -1 : mrb_int(mrb, argv[0]));
-        *dest = argv[1];
-        break;
-    case 1:
-        *size = (NIL_P(argv[0]) ? -1 : mrb_int(mrb, argv[0]));
-        *dest = Qnil;
-        break;
-    case 0:
-        *size = -1;
-        *dest = Qnil;
-        break;
-    default:
-        mrb_raisef(mrb,
-                   E_RUNTIME_ERROR,
-                   "wrong number of arguments (given %S, expect 0..2)",
-                   mrb_fixnum_value(argc));
-        break;
-    }
+    mrbx_get_read_args(mrb, size, dest);
 
     size_t allocsize = *size;
 
@@ -1018,14 +995,7 @@ dec_read_args(MRB, VALUE self, intptr_t *size, VALUE *dest)
         allocsize = AUX_MALLOC_MAX;
     }
 
-    if (NIL_P(*dest)) {
-        *dest = mrb_str_buf_new(mrb, allocsize);
-    } else {
-        mrb_check_type(mrb, *dest, MRB_TT_STRING);
-    }
-
-    mrb_str_resize(mrb, *dest, allocsize);
-    RSTR_SET_LEN(RSTRING(*dest), 0);
+    mrbx_str_reserve(mrb, *dest, allocsize);
 }
 
 /*
@@ -1038,16 +1008,16 @@ static VALUE
 dec_read(MRB, VALUE self)
 {
     intptr_t size;
-    VALUE dest;
+    struct RString *dest;
     dec_read_args(mrb, self, &size, &dest);
 
     struct decoder *p = getdecoder(mrb, self);
 
-    if (size == 0) { return dest; }
+    if (size == 0) { return mrb_obj_value(dest); }
 
     ZSTD_outBuffer bufout = {
-        .dst = RSTRING_PTR(dest),
-        .size = (size < 0 ? RSTRING_CAPA(dest) : size),
+        .dst = RSTR_PTR(dest),
+        .size = (size < 0 ? RSTR_CAPA(dest) : size),
         .pos = 0,
     };
 
@@ -1071,13 +1041,13 @@ dec_read(MRB, VALUE self)
         }
 
         if (bufout.pos - bufout.size < 1) {
-            size_t s = RSTRING_CAPA(dest);
+            size_t s = RSTR_CAPA(dest);
             if (s == AUX_MALLOC_MAX) { aux_check_error(mrb, ZSTD_error_dstSize_tooSmall, "ZSTD_decompressStream"); }
             s *= 2;
             s = CLAMP_MAX(s, AUX_MALLOC_MAX);
-            mrb_str_resize(mrb, dest, s);
-            bufout.dst = RSTRING_PTR(dest);
-            bufout.size = RSTRING_CAPA(dest);
+            mrbx_str_reserve(mrb, dest, s);
+            bufout.dst = RSTR_PTR(dest);
+            bufout.size = RSTR_CAPA(dest);
         }
 
         {
@@ -1087,9 +1057,9 @@ dec_read(MRB, VALUE self)
         }
     }
 
-    RSTR_SET_LEN(RSTRING(dest), bufout.pos);
+    RSTR_SET_LEN(dest, bufout.pos);
 
-    return (bufout.pos == 0 ? Qnil : dest);
+    return (bufout.pos == 0 ? Qnil : mrb_obj_value(dest));
 }
 
 /*
