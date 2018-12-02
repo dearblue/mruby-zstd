@@ -91,7 +91,7 @@ end
 ## Specification
 
   * Product name: [mruby-zstd](https://github.com/dearblue/mruby-zstd)
-  * Version: 0.2
+  * Version: 0.2.1
   * Product quality: PROTOTYPE
   * Author: [dearblue](https://github.com/dearblue)
   * Report issue to: <https://github.com/dearblue/mruby-zstd/issues>

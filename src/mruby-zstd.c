@@ -8,8 +8,8 @@
 #include <mruby/error.h>
 #include <stdlib.h>
 #include <string.h>
-#include "extdefs.h"
-#include "mrbx_kwargs.h"
+#include <mruby-aux.h>
+#include <mruby-aux/scanhash.h>
 
 #define ZSTD_STATIC_LINKING_ONLY 1
 #include <zstd.h>
@@ -143,15 +143,15 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
         };
 
         if (NIL_P(src)) {
-            mrbx_scanhash(mrb, opts, Qnil, args, MRBX_SCANHASH_ENDOF(args));
+            mrbx_scanhash(mrb, opts, Qnil, ELEMENTOF(args), args);
             *pledgedsize = (NIL_P(apledgedsize) ? ZSTD_CONTENTSIZE_UNKNOWN : mrb_int(mrb, apledgedsize));
             estimatedsize = (NIL_P(anestimatedsize) ? ZSTD_CONTENTSIZE_UNKNOWN : mrb_int(mrb, anestimatedsize));
             if (*pledgedsize != ZSTD_CONTENTSIZE_UNKNOWN && estimatedsize > *pledgedsize) {
                 estimatedsize = *pledgedsize;
             }
         } else {
-            /* NOTE: ~~~_ENDOF(args) - 2 によって estimatedsize と pledgedsize をないものと扱う */
-            mrbx_scanhash(mrb, opts, Qnil, args, MRBX_SCANHASH_ENDOF(args) - 2);
+            /* NOTE: ELEMENTOF(args) - 2 によって estimatedsize と pledgedsize をないものと扱う */
+            mrbx_scanhash(mrb, opts, Qnil, ELEMENTOF(args) - 2, args);
 
             *pledgedsize = estimatedsize = RSTRING_LEN(src);
         }
@@ -560,7 +560,7 @@ enc_write(MRB, VALUE self)
         size_t s = ZSTD_compressStream(p->zstd.context, &output, &input);
         aux_check_error(mrb, s, "ZSTD_compressStream");
         RSTR_SET_LEN(RSTRING(p->outbuf), output.pos);
-        FUNCALLC(mrb, p->io, "<<", p->outbuf);
+        FUNCALL(mrb, p->io, "<<", p->outbuf);
     }
 
     return self;
@@ -591,7 +591,7 @@ enc_flush(MRB, VALUE self)
         size_t s = ZSTD_flushStream(p->zstd.context, &output);
         aux_check_error(mrb, s, "ZSTD_flushStream");
         RSTR_SET_LEN(RSTRING(p->outbuf), output.pos);
-        FUNCALLC(mrb, p->io, "<<", p->outbuf);
+        FUNCALL(mrb, p->io, "<<", p->outbuf);
     } while (output.pos == output.size);
 
     return self;
@@ -622,7 +622,7 @@ enc_close(MRB, VALUE self)
         size_t s = ZSTD_endStream(p->zstd.context, &output);
         aux_check_error(mrb, s, "ZSTD_endStream");
         RSTR_SET_LEN(RSTRING(p->outbuf), output.pos);
-        FUNCALLC(mrb, p->io, "<<", p->outbuf);
+        FUNCALL(mrb, p->io, "<<", p->outbuf);
     } while (output.pos == output.size);
 
     return Qnil;
@@ -980,32 +980,9 @@ dec_initialize(MRB, VALUE self)
 }
 
 static void
-dec_read_args(MRB, VALUE self, intptr_t *size, VALUE *dest)
+dec_read_args(MRB, VALUE self, intptr_t *size, struct RString **dest)
 {
-    mrb_int argc;
-    VALUE *argv;
-    mrb_get_args(mrb, "*", &argv, &argc);
-
-    switch (argc) {
-    case 2:
-        *size = (NIL_P(argv[0]) ? -1 : mrb_int(mrb, argv[0]));
-        *dest = argv[1];
-        break;
-    case 1:
-        *size = (NIL_P(argv[0]) ? -1 : mrb_int(mrb, argv[0]));
-        *dest = Qnil;
-        break;
-    case 0:
-        *size = -1;
-        *dest = Qnil;
-        break;
-    default:
-        mrb_raisef(mrb,
-                   E_RUNTIME_ERROR,
-                   "wrong number of arguments (given %S, expect 0..2)",
-                   mrb_fixnum_value(argc));
-        break;
-    }
+    mrbx_get_read_args(mrb, size, dest);
 
     size_t allocsize = *size;
 
@@ -1018,14 +995,7 @@ dec_read_args(MRB, VALUE self, intptr_t *size, VALUE *dest)
         allocsize = AUX_MALLOC_MAX;
     }
 
-    if (NIL_P(*dest)) {
-        *dest = mrb_str_buf_new(mrb, allocsize);
-    } else {
-        mrb_check_type(mrb, *dest, MRB_TT_STRING);
-    }
-
-    mrb_str_resize(mrb, *dest, allocsize);
-    RSTR_SET_LEN(RSTRING(*dest), 0);
+    mrbx_str_reserve(mrb, *dest, allocsize);
 }
 
 /*
@@ -1038,16 +1008,16 @@ static VALUE
 dec_read(MRB, VALUE self)
 {
     intptr_t size;
-    VALUE dest;
+    struct RString *dest;
     dec_read_args(mrb, self, &size, &dest);
 
     struct decoder *p = getdecoder(mrb, self);
 
-    if (size == 0) { return dest; }
+    if (size == 0) { return mrb_obj_value(dest); }
 
     ZSTD_outBuffer bufout = {
-        .dst = RSTRING_PTR(dest),
-        .size = (size < 0 ? RSTRING_CAPA(dest) : size),
+        .dst = RSTR_PTR(dest),
+        .size = (size < 0 ? RSTR_CAPA(dest) : size),
         .pos = 0,
     };
 
@@ -1056,7 +1026,7 @@ dec_read(MRB, VALUE self)
             if (NIL_P(p->inbuf)) { break; }
             size_t readsize = ZSTD_DStreamInSize();
             if (readsize > AUX_MALLOC_MAX) { readsize = AUX_MALLOC_MAX; }
-            p->inbuf = FUNCALLC(mrb, p->io, "read", mrb_fixnum_value(RSTRING_CAPA(p->inbuf)), p->inbuf);
+            p->inbuf = FUNCALL(mrb, p->io, "read", mrb_fixnum_value(RSTRING_CAPA(p->inbuf)), p->inbuf);
             if (NIL_P(p->inbuf)) {
                 decoder_set_inbuf(mrb, self, p, p->inbuf);
                 break;
@@ -1071,13 +1041,13 @@ dec_read(MRB, VALUE self)
         }
 
         if (bufout.pos - bufout.size < 1) {
-            size_t s = RSTRING_CAPA(dest);
+            size_t s = RSTR_CAPA(dest);
             if (s == AUX_MALLOC_MAX) { aux_check_error(mrb, ZSTD_error_dstSize_tooSmall, "ZSTD_decompressStream"); }
             s *= 2;
             s = CLAMP_MAX(s, AUX_MALLOC_MAX);
-            mrb_str_resize(mrb, dest, s);
-            bufout.dst = RSTRING_PTR(dest);
-            bufout.size = RSTRING_CAPA(dest);
+            mrbx_str_reserve(mrb, dest, s);
+            bufout.dst = RSTR_PTR(dest);
+            bufout.size = RSTR_CAPA(dest);
         }
 
         {
@@ -1087,9 +1057,9 @@ dec_read(MRB, VALUE self)
         }
     }
 
-    RSTR_SET_LEN(RSTRING(dest), bufout.pos);
+    RSTR_SET_LEN(dest, bufout.pos);
 
-    return (bufout.pos == 0 ? Qnil : dest);
+    return (bufout.pos == 0 ? Qnil : mrb_obj_value(dest));
 }
 
 /*
