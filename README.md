@@ -98,6 +98,7 @@ end
   * Licensing: [2 clause BSD License](LICENSE)
   * Dependency external mrbgems: (NONE)
   * Bundled C libraries (git-submodule'd):
-      * [zstd-1.3.5](https://github.com/facebook/zstd)
-        under [3 clause BSD License](https://github.com/facebook/zstd/blob/v1.3.5/LICENSE)
+      * [zstd](https://github.com/facebook/zstd)
+        [version 1.3.8](https://github.com/facebook/zstd/tree/v1.3.8)
+        under [3 clause BSD License](https://github.com/facebook/zstd/blob/v1.3.8/LICENSE)
         by [Facebook](https://github.com/facebook)
