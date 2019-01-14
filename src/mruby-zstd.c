@@ -37,6 +37,7 @@
 #define id_btlazy2  (mrb_intern_lit(mrb, "btlazy2"))
 #define id_btopt    (mrb_intern_lit(mrb, "btopt"))
 #define id_btultra  (mrb_intern_lit(mrb, "btultra"))
+#define id_btultra2 (mrb_intern_lit(mrb, "btultra2"))
 
 static ZSTD_strategy
 aux_to_strategy(MRB, VALUE astrategy)
@@ -59,9 +60,11 @@ aux_to_strategy(MRB, VALUE astrategy)
         return ZSTD_btopt;
     } else if (strategy == id_btultra) {
         return ZSTD_btultra;
+    } else if (strategy == id_btultra2) {
+        return ZSTD_btultra2;
     } else {
         mrb_raisef(mrb, E_ARGUMENT_ERROR,
-                "wrong strategy (given %S, expect fast, dfast, greedy, lazy, lazy2, btlazy2, btopt or btultra)",
+                "wrong strategy (given %S, expect fast, dfast, greedy, lazy, lazy2, btlazy2, btopt, btultra or btultra2)",
                 astrategy);
     }
 }
