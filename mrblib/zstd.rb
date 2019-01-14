@@ -20,11 +20,11 @@ module Zstd
   #
   #   dict (string OR nil):: compression with dictionary
   #
-  #   windowlog, chainlog, hashlog, searchlog, searchlength, targetlength, strategy (integer OR nil)::
-  #     see https://github.com/facebook/zstd/blob/v1.3.0/lib/zstd.h#L403
+  #   windowlog, chainlog, hashlog, searchlog, minmatch, targetlength, strategy (integer OR nil)::
+  #     see https://github.com/facebook/zstd/blob/v1.3.8/lib/zstd.h#L403
   #
   #   nocontentsize, nochecksum, nodictid (true, false OR nil)::
-  #     see https://github.com/facebook/zstd/blob/v1.3.0/lib/zstd.h#L428
+  #     see https://github.com/facebook/zstd/blob/v1.3.8/lib/zstd.h#L428
   #
   #   estimatedsize (integer OR nil)::
   #     (streaming compression only) used as hint

@@ -37,6 +37,7 @@
 #define id_btlazy2  (mrb_intern_lit(mrb, "btlazy2"))
 #define id_btopt    (mrb_intern_lit(mrb, "btopt"))
 #define id_btultra  (mrb_intern_lit(mrb, "btultra"))
+#define id_btultra2 (mrb_intern_lit(mrb, "btultra2"))
 
 static ZSTD_strategy
 aux_to_strategy(MRB, VALUE astrategy)
@@ -59,9 +60,11 @@ aux_to_strategy(MRB, VALUE astrategy)
         return ZSTD_btopt;
     } else if (strategy == id_btultra) {
         return ZSTD_btultra;
+    } else if (strategy == id_btultra2) {
+        return ZSTD_btultra2;
     } else {
         mrb_raisef(mrb, E_ARGUMENT_ERROR,
-                "wrong strategy (given %S, expect fast, dfast, greedy, lazy, lazy2, btlazy2, btopt or btultra)",
+                "wrong strategy (given %S, expect fast, dfast, greedy, lazy, lazy2, btlazy2, btopt, btultra or btultra2)",
                 astrategy);
     }
 }
@@ -124,7 +127,7 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
     } else {
         uint64_t estimatedsize;
         VALUE level, contentsize, checksum, nodictid, anestimatedsize, apledgedsize,
-              windowlog, chainlog, hashlog, searchlog, searchlength, targetlength, strategy;
+              windowlog, chainlog, hashlog, searchlog, minmatch, targetlength, strategy;
         struct mrbx_scanhash_arg args[] = {
             MRBX_SCANHASH_ARGS("level",         &level,             Qnil),
             MRBX_SCANHASH_ARGS("dict",          dict,               Qnil),
@@ -132,7 +135,7 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
             MRBX_SCANHASH_ARGS("chainlog",      &chainlog,          Qnil),
             MRBX_SCANHASH_ARGS("hashlog",       &hashlog,           Qnil),
             MRBX_SCANHASH_ARGS("searchlog",     &searchlog,         Qnil),
-            MRBX_SCANHASH_ARGS("searchlength",  &searchlength,      Qnil),
+            MRBX_SCANHASH_ARGS("minmatch",      &minmatch,          Qnil),
             MRBX_SCANHASH_ARGS("targetlength",  &targetlength,      Qnil),
             MRBX_SCANHASH_ARGS("strategy",      &strategy,          Qnil),
             MRBX_SCANHASH_ARGS("contentsize",   &contentsize,       Qnil),
@@ -167,7 +170,7 @@ encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pled
         if (!NIL_P(chainlog)) { params->cParams.chainLog = mrb_int(mrb, chainlog); }
         if (!NIL_P(hashlog)) { params->cParams.hashLog = mrb_int(mrb, hashlog); }
         if (!NIL_P(searchlog)) { params->cParams.searchLog = mrb_int(mrb, searchlog); }
-        if (!NIL_P(searchlength)) { params->cParams.searchLength = mrb_int(mrb, searchlength); }
+        if (!NIL_P(minmatch)) { params->cParams.minMatch = mrb_int(mrb, minmatch); }
         if (!NIL_P(targetlength)) { params->cParams.targetLength = mrb_int(mrb, targetlength); }
         if (!NIL_P(strategy)) { params->cParams.strategy = aux_to_strategy(mrb, strategy); }
 
