@@ -141,9 +141,10 @@ assert("Zstd:large stream encoding with IO") do
     end
   end
 
-  ss = File.open("#SAMPLE.rand.zst", "rb") { |f| f.read }
-  Zstd.decode(ss)
-  true
+  assert_nothing_raised do
+    ss = File.open("#SAMPLE.rand.zst", "rb") { |f| f.read }
+    Zstd.decode(ss)
+  end
 end
 
 assert("Zstd:large stream decoding with IO") do
