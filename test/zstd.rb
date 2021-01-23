@@ -101,9 +101,9 @@ assert("Zstd - stream processing (huge)") do
     skip "[mruby is build with MRB_INT16]"
   end
 
-  s = "123456789" * 11111111 + "ABCDEFG"
+  s = "123456789" * 1111111 + "ABCDEFG"
   d = ""
-  Zstd::Encoder.wrap(d, level: 1) do |zstd|
+  Zstd::Encoder.wrap(d, level: 0) do |zstd|
     off = 0
     slicesize = 777777
     while off < s.bytesize
