@@ -90,15 +90,15 @@ end
 
 ## Specification
 
-  * Product name: [mruby-zstd](https://github.com/dearblue/mruby-zstd)
-  * Version: 0.2.3
-  * Product quality: PROTOTYPE
-  * Author: [dearblue](https://github.com/dearblue)
-  * Report issue to: <https://github.com/dearblue/mruby-zstd/issues>
-  * Licensing: [2 clause BSD License](LICENSE)
-  * Dependency external mrbgems: (NONE)
-  * Bundled C libraries (git-submodule'd):
-      * [zstd](https://github.com/facebook/zstd)
+  - Product name: [mruby-zstd](https://github.com/dearblue/mruby-zstd)
+  - Version: 0.2.3
+  - Product quality: PROTOTYPE
+  - Author: [dearblue](https://github.com/dearblue)
+  - Report issue to: <https://github.com/dearblue/mruby-zstd/issues>
+  - Licensing: [2 clause BSD License](LICENSE)
+  - Dependency external mrbgems: (NONE)
+  - Bundled C libraries (git-submodule'd):
+      - [zstd](https://github.com/facebook/zstd)
         [version 1.3.8](https://github.com/facebook/zstd/tree/v1.3.8)
         under [3 clause BSD License](https://github.com/facebook/zstd/blob/v1.3.8/LICENSE)
         by [Facebook](https://github.com/facebook)
