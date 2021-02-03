@@ -99,6 +99,6 @@ end
   - Dependency external mrbgems: (NONE)
   - Bundled C libraries (git-submodule'd):
       - [zstd](https://github.com/facebook/zstd)
-        [version 1.3.8](https://github.com/facebook/zstd/tree/v1.3.8)
-        under [3 clause BSD License](https://github.com/facebook/zstd/blob/v1.3.8/LICENSE)
+        [version 1.4.8](https://github.com/facebook/zstd/tree/v1.4.8)
+        under [3 clause BSD License](https://github.com/facebook/zstd/blob/v1.4.8/LICENSE)
         by [Facebook](https://github.com/facebook)
