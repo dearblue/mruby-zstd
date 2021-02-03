@@ -1,3 +1,5 @@
+MRuby::Lockfile.disable rescue nil
+
 MRuby::Build.new do |conf|
   toolchain :clang
 
@@ -43,21 +45,6 @@ MRuby::Build.new("host32-with-zstdlegacy") do |conf|
   gem "."
 end
 
-MRuby::Build.new("host16") do |conf|
-  toolchain :clang
-
-  conf.build_dir = conf.name
-
-  enable_debug
-  enable_test
-  cc.defines << "MRB_INT16"
-
-  gem core: "mruby-print"
-  gem core: "mruby-bin-mrbc"
-  gem core: "mruby-bin-mruby"
-  gem "."
-end if false
-
 MRuby::Build.new("host64") do |conf|
   toolchain :clang
 
@@ -73,22 +60,6 @@ MRuby::Build.new("host64") do |conf|
   gem core: "mruby-bin-mruby"
   gem "."
 end if false
-
-MRuby::Build.new("host-nan16") do |conf|
-  toolchain :clang
-
-  conf.build_dir = conf.name
-
-  cc.defines << %w(MRB_NAN_BOXING MRB_INT16)
-
-  enable_debug
-  enable_test
-
-  gem core: "mruby-print"
-  gem core: "mruby-bin-mrbc"
-  gem core: "mruby-bin-mruby"
-  gem "."
-end
 
 MRuby::Build.new("host-nan32") do |conf|
   toolchain :clang

@@ -29,6 +29,9 @@
 
 #define CLAMP_MAX(n, max) ((n) > (max) ? (max) : (n))
 
+#define ID_op_lshift mrb_intern_lit(mrb, "<<")
+#define ID_read mrb_intern_lit(mrb, "read")
+
 #define id_fast     (mrb_intern_lit(mrb, "fast"))
 #define id_dfast    (mrb_intern_lit(mrb, "dfast"))
 #define id_greedy   (mrb_intern_lit(mrb, "greedy"))
@@ -563,7 +566,7 @@ enc_write(MRB, VALUE self)
         size_t s = ZSTD_compressStream(p->zstd.context, &output, &input);
         aux_check_error(mrb, s, "ZSTD_compressStream");
         RSTR_SET_LEN(RSTRING(p->outbuf), output.pos);
-        FUNCALL(mrb, p->io, "<<", p->outbuf);
+        FUNCALL(mrb, p->io, ID_op_lshift, p->outbuf);
     }
 
     return self;
@@ -594,7 +597,7 @@ enc_flush(MRB, VALUE self)
         size_t s = ZSTD_flushStream(p->zstd.context, &output);
         aux_check_error(mrb, s, "ZSTD_flushStream");
         RSTR_SET_LEN(RSTRING(p->outbuf), output.pos);
-        FUNCALL(mrb, p->io, "<<", p->outbuf);
+        FUNCALL(mrb, p->io, ID_op_lshift, p->outbuf);
     } while (output.pos == output.size);
 
     return self;
@@ -625,7 +628,7 @@ enc_close(MRB, VALUE self)
         size_t s = ZSTD_endStream(p->zstd.context, &output);
         aux_check_error(mrb, s, "ZSTD_endStream");
         RSTR_SET_LEN(RSTRING(p->outbuf), output.pos);
-        FUNCALL(mrb, p->io, "<<", p->outbuf);
+        FUNCALL(mrb, p->io, ID_op_lshift, p->outbuf);
     } while (output.pos == output.size);
 
     return Qnil;
@@ -1029,7 +1032,7 @@ dec_read(MRB, VALUE self)
             if (NIL_P(p->inbuf)) { break; }
             size_t readsize = ZSTD_DStreamInSize();
             if (readsize > AUX_MALLOC_MAX) { readsize = AUX_MALLOC_MAX; }
-            p->inbuf = FUNCALL(mrb, p->io, "read", mrb_fixnum_value(RSTRING_CAPA(p->inbuf)), p->inbuf);
+            p->inbuf = FUNCALL(mrb, p->io, ID_read, mrb_fixnum_value(RSTRING_CAPA(p->inbuf)), p->inbuf);
             if (NIL_P(p->inbuf)) {
                 decoder_set_inbuf(mrb, self, p, p->inbuf);
                 break;
