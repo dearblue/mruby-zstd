@@ -1,3 +1,5 @@
+MRuby::Lockfile.disable rescue nil
+
 MRuby::Build.new do |conf|
   toolchain :clang
 
