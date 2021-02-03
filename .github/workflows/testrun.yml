@@ -1,0 +1,40 @@
+name: build and test
+
+on:
+  push:
+    branches: "*"
+  pull_request:
+    branches: "*"
+
+jobs:
+  ubuntu-18-04:
+    runs-on: ubuntu-18.04
+    name: ubuntu-18.04 (mruby-${{matrix.TARGET_MRUBY}})
+    strategy:
+      matrix:
+        TARGET_MRUBY:
+        - master
+        - 2.1.2
+        - 2.1.1
+        - 2.1.0
+    env:
+      MRUBY_URL: "https://github.com/mruby/mruby/archive/${{matrix.TARGET_MRUBY}}.tar.gz"
+      MRUBY_DIR: "mruby-${{matrix.TARGET_MRUBY}}"
+      MRUBY_CONFIG: "test_config.rb"
+      ZSTD_URL: "https://github.com/facebook/zstd/archive/v1.4.8.tar.gz"
+    steps:
+    - uses: actions/checkout@v2
+    - name: fetch and extract mruby
+      run: wget -O- $MRUBY_URL | tar xzf -
+    - name: fetch and extract contribs
+      run: |
+        mkdir -p contrib
+        rm -rf contrib/zstd || true
+        wget -O- $ZSTD_URL | tar xzf - -C contrib
+        mv contrib/zstd-* contrib/zstd
+    - name: pre-clean
+      run: rake -vf $MRUBY_DIR/Rakefile clean
+    - name: build
+      run: rake -mvf $MRUBY_DIR/Rakefile || rake -vf $MRUBY_DIR/Rakefile
+    - name: test
+      run: rake -vf $MRUBY_DIR/Rakefile test
