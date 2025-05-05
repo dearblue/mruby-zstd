@@ -245,18 +245,20 @@ enc_s_encode_args(MRB, VALUE *src, VALUE *dest, mrb_int *maxdest, ZSTD_parameter
   encode_kwargs(mrb, opts, *src, params, pledgedsize, dict);
 }
 
+struct enc_s_encode_main_body
+{
+  ZSTD_CStream *zstd;
+  VALUE src, dest;
+  mrb_int maxdest;
+  ZSTD_parameters *params;
+  mrb_int pledgedsize;
+  VALUE dict;
+};
+
 static VALUE
 enc_s_encode_main_body(MRB, VALUE args)
 {
-  struct args
-  {
-    ZSTD_CStream *zstd;
-    VALUE src, dest;
-    mrb_int maxdest;
-    ZSTD_parameters *params;
-    mrb_int pledgedsize;
-    VALUE dict;
-  } *p = (struct args *)mrb_cptr(args);
+  struct enc_s_encode_main_body *p = (struct enc_s_encode_main_body *)mrb_cptr(args);
 
   size_t s = ZSTD_initCStream_advanced(p->zstd,
                                        (NIL_P(p->dict) ? NULL : RSTRING_PTR(p->dict)),
@@ -331,15 +333,7 @@ enc_s_encode_main_body(MRB, VALUE args)
 static VALUE
 enc_s_encode_cleanup(MRB, VALUE args)
 {
-  struct args
-  {
-    ZSTD_CStream *zstd;
-    VALUE src, dest;
-    mrb_int maxdest;
-    ZSTD_parameters *params;
-    mrb_int pledgedsize;
-    VALUE dict;
-  } *p = (struct args *)mrb_cptr(args);
+  struct enc_s_encode_main_body *p = (struct enc_s_encode_main_body *)mrb_cptr(args);
 
   ZSTD_freeCStream(p->zstd);
 
@@ -353,17 +347,8 @@ enc_s_encode_main(MRB, VALUE src, VALUE dest, mrb_int maxdest, ZSTD_parameters *
   ZSTD_CStream *zstd = ZSTD_createCStream_advanced(allocator);
   if (!zstd) { mrb_raise(mrb, E_RUNTIME_ERROR, "ZSTD_initCStream_advanced failed"); }
 
-  struct args
-  {
-    ZSTD_CStream *zstd;
-    VALUE src, dest;
-    mrb_int maxdest;
-    ZSTD_parameters *params;
-    mrb_int pledgedsize;
-    VALUE dict;
-  } p = { zstd, src, dest, maxdest, params, pledgedsize, dict };
-
-  VALUE argsp = mrb_cptr_value(mrb, &p);
+  struct enc_s_encode_main_body args = { zstd, src, dest, maxdest, params, pledgedsize, dict };
+  VALUE argsp = mrb_cptr_value(mrb, &args);
   mrb_ensure(mrb, enc_s_encode_main_body, argsp, enc_s_encode_cleanup, argsp);
 }
 
@@ -714,15 +699,18 @@ dec_s_decode_args(MRB, VALUE *src, VALUE *dest, mrb_int *maxsize, VALUE *dict)
   }
 }
 
+struct decode_main_body
+{
+  ZSTD_DStream *zstd;
+  VALUE src, dest;
+  mrb_int maxsize;
+  mrb_int pos;
+};
+
 static VALUE
 decode_main_body(MRB, VALUE args)
 {
-  struct args {
-    ZSTD_DStream *zstd;
-    VALUE src, dest;
-    mrb_int maxsize;
-    mrb_int pos;
-  } *p = (struct args *)mrb_cptr(args);
+  struct decode_main_body *p = (struct decode_main_body *)mrb_cptr(args);
 
   ZSTD_inBuffer bufin = { .src = RSTRING_PTR(p->src), .size = RSTRING_LEN(p->src), .pos = 0, };
   ZSTD_outBuffer bufout = { .dst = RSTRING_PTR(p->dest), .size = (p->maxsize < 0 ? RSTRING_CAPA(p->dest) : p->maxsize), .pos = 0, };
@@ -753,12 +741,7 @@ decode_main_body(MRB, VALUE args)
 static VALUE
 decode_main_ensure(MRB, VALUE args)
 {
-  struct args {
-    ZSTD_DStream *zstd;
-    VALUE src, dest;
-    mrb_int maxsize;
-    mrb_int pos;
-  } *p = (struct args *)mrb_cptr(args);
+  struct decode_main_body *p = (struct decode_main_body *)mrb_cptr(args);
 
   RSTR_SET_LEN(RSTRING(p->dest), p->pos);
   ZSTD_freeDStream(p->zstd);
@@ -769,13 +752,7 @@ decode_main_ensure(MRB, VALUE args)
 static void
 decode_main(MRB, ZSTD_DStream *zstd, VALUE src, VALUE dest, mrb_int maxsize)
 {
-  struct args {
-    ZSTD_DStream *zstd;
-    VALUE src, dest;
-    mrb_int maxsize;
-    mrb_int pos;
-  } args = { zstd, src, dest, maxsize, 0 };
-
+  struct decode_main_body args = { zstd, src, dest, maxsize, 0 };
   VALUE argsp = mrb_cptr_value(mrb, &args);
   mrb_ensure(mrb, decode_main_body, argsp, decode_main_ensure, argsp);
 }
