@@ -102,7 +102,7 @@ static ZSTD_customMem
 aux_zstd_allocator(MRB)
 {
   const ZSTD_customMem a = {
-    .customAlloc = (void *(*)(void *, unsigned long))mrb_malloc_simple,
+    .customAlloc = (void *(*)(void *, size_t))mrb_malloc_simple,
     .customFree = (void (*)(void *, void *))mrb_free,
     .opaque = mrb,
   };
