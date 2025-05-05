@@ -136,7 +136,11 @@ assert("Zstd:large stream encoding with IO") do
     File.open("#SAMPLE.rand.zst", "wb") do |dest|
       Zstd.encode(dest) do |z|
         buf = ""
-        33.times { src.read(333, buf); z << buf }
+        33.times {
+          buf = "" # for mruby 3.2 bug
+          src.read(333, buf)
+          z << buf
+        }
       end
     end
   end

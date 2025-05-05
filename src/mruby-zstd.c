@@ -1032,7 +1032,16 @@ dec_read(MRB, VALUE self)
       if (NIL_P(p->inbuf)) { break; }
       size_t readsize = ZSTD_DStreamInSize();
       if (readsize > AUX_MALLOC_MAX) { readsize = AUX_MALLOC_MAX; }
+#if MRUBY_RELEASE_NO == 30200
+      mrb_str_modify(mrb, mrb_str_ptr(p->inbuf));
+      RSTR_SET_LEN(mrb_str_ptr(p->inbuf), 0);
+#endif
       p->inbuf = FUNCALL(mrb, p->io, ID_read, mrb_fixnum_value(RSTRING_CAPA(p->inbuf)), p->inbuf);
+#if MRUBY_RELEASE_NO == 30200
+      if (mrb_string_p(p->inbuf) && RSTRING_LEN(p->inbuf) == 0) {
+        p->inbuf = mrb_nil_value();
+      }
+#endif
       if (NIL_P(p->inbuf)) {
         decoder_set_inbuf(mrb, self, p, p->inbuf);
         break;
