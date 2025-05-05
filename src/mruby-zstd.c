@@ -452,38 +452,6 @@ encoder_set_outbuf(MRB, VALUE obj, struct encoder *p, VALUE val)
   return val;
 }
 
-/*
- * call-seq:
- *  new(level = nil, prefs = {})
- */
-static VALUE
-enc_s_new(MRB, VALUE self)
-{
-  struct RClass *klass = mrb_class_ptr(self);
-  struct RData *rd;
-  struct encoder *p;
-  Data_Make_Struct(mrb, klass, struct encoder, &encoder_type, p, rd);
-  p->io = Qnil;
-  p->outbufsize = ZSTD_CStreamOutSize();
-  if (p->outbufsize > AUX_MALLOC_MAX) { p->outbufsize = AUX_MALLOC_MAX; }
-  p->zstd.allocator = aux_zstd_allocator(mrb);
-  p->zstd.context = ZSTD_createCStream_advanced(p->zstd.allocator);
-
-  if (!p->zstd.context) {
-    mrb_raise(mrb,
-              E_RUNTIME_ERROR,
-              "ZSTD_createCStream_advanced failed");
-  }
-
-  VALUE obj = mrb_obj_value(rd);
-  mrb_int argc;
-  mrb_value *argv;
-  mrb_get_args(mrb, "*", &argv, &argc);
-  mrb_funcall_argv(mrb, obj, mrb_intern_lit(mrb, "initialize"), argc, argv);
-
-  return obj;
-}
-
 static void
 enc_initialize_args(MRB, VALUE *outport, ZSTD_parameters *params, mrb_int *pledgedsize, VALUE *dict)
 {
@@ -526,7 +494,24 @@ enc_initialize(MRB, VALUE self)
   VALUE dict;
   VALUE port;
   enc_initialize_args(mrb, &port, &params, &pledgedsize, &dict);
-  struct encoder *p = getencoder(mrb, self);
+
+  if (DATA_PTR(self) != NULL) {
+    mrb_raise(mrb, E_ARGUMENT_ERROR, "wrong twice re-initialization");
+  }
+
+  struct encoder *p = (struct encoder *)mrb_calloc(mrb, 1, sizeof(struct encoder));
+  mrb_data_init(self, p, &encoder_type);
+  p->io = Qnil;
+  p->outbufsize = ZSTD_CStreamOutSize();
+  if (p->outbufsize > AUX_MALLOC_MAX) { p->outbufsize = AUX_MALLOC_MAX; }
+  p->zstd.allocator = aux_zstd_allocator(mrb);
+  p->zstd.context = ZSTD_createCStream_advanced(p->zstd.allocator);
+
+  if (!p->zstd.context) {
+    mrb_raise(mrb,
+              E_RUNTIME_ERROR,
+              "ZSTD_createCStream_advanced failed");
+  }
 
   size_t s = ZSTD_initCStream_advanced(p->zstd.context,
                                        (NIL_P(dict) ? NULL : RSTRING_PTR(dict)),
@@ -648,8 +633,8 @@ static void
 init_encoder(MRB, struct RClass *mZstd)
 {
   struct RClass *cEncoder = mrb_define_class_under(mrb, mZstd, "Encoder", mrb_cObject);
+  MRB_SET_INSTANCE_TT(cEncoder, MRB_TT_DATA);
   mrb_define_class_method(mrb, cEncoder, "encode", enc_s_encode, MRB_ARGS_ANY());
-  mrb_define_class_method(mrb, cEncoder, "new", enc_s_new, MRB_ARGS_ANY());
   mrb_define_method(mrb, cEncoder, "initialize", enc_initialize, MRB_ARGS_ANY());
   mrb_define_method(mrb, cEncoder, "write", enc_write, MRB_ARGS_REQ(1));
   mrb_define_method(mrb, cEncoder, "flush", enc_flush, MRB_ARGS_NONE());
@@ -886,33 +871,6 @@ decoder_set_inbuf(MRB, VALUE obj, struct decoder *p, VALUE buf)
   return buf;
 }
 
-static VALUE
-dec_s_new(MRB, VALUE self)
-{
-  struct RClass *klass = mrb_class_ptr(self);
-  struct RData *rd;
-  struct decoder *p;
-  Data_Make_Struct(mrb, klass, struct decoder, &decoder_type, p, rd);
-  p->zstd.allocator = aux_zstd_allocator(mrb);
-  p->zstd.context = ZSTD_createDStream_advanced(p->zstd.allocator);
-
-  if (!p->zstd.context) {
-    mrb_raise(mrb,
-              E_RUNTIME_ERROR,
-              "ZSTD_createDStream_advanced failed");
-  }
-
-  VALUE obj = mrb_obj_value(rd);
-  decoder_set_inport(mrb, obj, p, Qnil);
-  decoder_set_inbuf(mrb, obj, p, Qnil);
-  mrb_int argc;
-  mrb_value *argv;
-  mrb_get_args(mrb, "*", &argv, &argc);
-  mrb_funcall_argv(mrb, obj, mrb_intern_lit(mrb, "initialize"), argc, argv);
-
-  return obj;
-}
-
 static void
 dec_initialize_args(MRB, VALUE *inport, VALUE *dict)
 {
@@ -952,16 +910,32 @@ dec_initialize_args(MRB, VALUE *inport, VALUE *dict)
 static VALUE
 dec_initialize(MRB, VALUE self)
 {
-  struct decoder *p = getdecoder(mrb, self);
-  VALUE dict;
-  dec_initialize_args(mrb, &p->io, &dict);
-  decoder_set_inport(mrb, self, p, p->io);
+  VALUE inport, dict;
+  dec_initialize_args(mrb, &inport, &dict);
+
+  if (DATA_PTR(self) != NULL) {
+    mrb_raise(mrb, E_ARGUMENT_ERROR, "wrong twice re-initialization");
+  }
+
+  struct decoder *p = (struct decoder *)mrb_calloc(mrb, 1, sizeof(struct decoder));
+  mrb_data_init(self, p, &decoder_type);
+  p->zstd.allocator = aux_zstd_allocator(mrb);
+  p->zstd.context = ZSTD_createDStream_advanced(p->zstd.allocator);
+
+  if (!p->zstd.context) {
+      mrb_raise(mrb,
+                E_RUNTIME_ERROR,
+                "ZSTD_createDStream_advanced failed");
+  }
+
+  decoder_set_inbuf(mrb, self, p, Qnil);
+  decoder_set_inport(mrb, self, p, inport);
   decoder_set_dict(mrb, self, p, dict);
 
-  if (mrb_string_p(p->io)) {
+  if (mrb_string_p(inport)) {
     decoder_set_inbuf(mrb, self, p, Qnil);
-    p->zstd.bufin.src = RSTRING_PTR(p->io);
-    p->zstd.bufin.size = RSTRING_LEN(p->io);
+    p->zstd.bufin.src = RSTRING_PTR(inport);
+    p->zstd.bufin.size = RSTRING_LEN(inport);
     p->zstd.bufin.pos = 0;
   } else {
 #ifdef MRB_INT16
@@ -1113,8 +1087,8 @@ static void
 init_decoder(MRB, struct RClass *mZstd)
 {
   struct RClass *cDecoder = mrb_define_class_under(mrb, mZstd, "Decoder", mrb_cObject);
+  MRB_SET_INSTANCE_TT(cDecoder, MRB_TT_DATA);
   mrb_define_class_method(mrb, cDecoder, "decode", dec_s_decode, MRB_ARGS_ANY());
-  mrb_define_class_method(mrb, cDecoder, "new", dec_s_new, MRB_ARGS_ANY());
   mrb_define_method(mrb, cDecoder, "initialize", dec_initialize, MRB_ARGS_ANY());
   mrb_define_method(mrb, cDecoder, "read", dec_read, MRB_ARGS_ANY());
   mrb_define_method(mrb, cDecoder, "close", dec_close, MRB_ARGS_NONE());
