@@ -9,7 +9,7 @@ MRuby::Build.new do |conf|
   enable_test
   cc.defines << "MRB_STR_LENGTH_MAX=200000000"
 
-  gem core: "mruby-print"
+  gem core: "mruby-io"
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
@@ -26,7 +26,7 @@ MRuby::Build.new("host32-c++") do |conf|
   cc.defines << "MRB_STR_LENGTH_MAX=200000000"
   cxx.defines << "MRB_STR_LENGTH_MAX=200000000"
 
-  gem core: "mruby-print"
+  gem core: "mruby-io"
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
@@ -43,7 +43,7 @@ MRuby::Build.new("host32-with-zstdlegacy") do |conf|
   enable_debug
   enable_test
 
-  gem core: "mruby-print"
+  gem core: "mruby-io"
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
@@ -60,7 +60,7 @@ MRuby::Build.new("host64") do |conf|
   enable_debug
   enable_test
 
-  gem core: "mruby-print"
+  gem core: "mruby-io"
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
@@ -77,7 +77,7 @@ MRuby::Build.new("host-nan32") do |conf|
   enable_debug
   enable_test
 
-  gem core: "mruby-print"
+  gem core: "mruby-io"
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
@@ -94,7 +94,7 @@ MRuby::Build.new("host-word32") do |conf|
   enable_debug
   enable_test
 
-  gem core: "mruby-print"
+  gem core: "mruby-io"
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
@@ -111,7 +111,7 @@ MRuby::Build.new("host-word64") do |conf|
   enable_debug
   enable_test
 
-  gem core: "mruby-print"
+  gem core: "mruby-io"
   gem core: "mruby-bin-mrbc"
   gem core: "mruby-bin-mruby"
   gem "."
