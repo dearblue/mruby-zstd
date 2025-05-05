@@ -1036,14 +1036,15 @@ dec_read(MRB, VALUE self)
       if (NIL_P(p->inbuf)) {
         decoder_set_inbuf(mrb, self, p, p->inbuf);
         break;
-      }
-
-      if (!mrb_string_p(p->inbuf)) {
+      } else if (!mrb_string_p(p->inbuf)) {
         decoder_set_inbuf(mrb, self, p, Qnil);
         mrb_check_type(mrb, p->inbuf, MRB_TT_STRING);
+        // not reached
+      } else {
+        decoder_set_inbuf(mrb, self, p, p->inbuf);
+        p->zstd.bufin.size = RSTRING_LEN(p->inbuf);
+        p->zstd.bufin.pos = 0;
       }
-
-      decoder_set_inbuf(mrb, self, p, p->inbuf);
     }
 
     if (bufout.pos - bufout.size < 1) {
