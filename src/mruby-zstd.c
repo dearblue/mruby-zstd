@@ -13,7 +13,7 @@
 
 #define ZSTD_STATIC_LINKING_ONLY 1
 #include <zstd.h>
-#include <common/zstd_errors.h>
+#include <zstd_errors.h>
 
 #ifndef MRUBY_ZSTD_DEFAULT_PARTIAL_SIZE
 # ifdef MRB_INT16
