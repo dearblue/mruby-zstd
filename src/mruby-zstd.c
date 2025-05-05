@@ -260,6 +260,10 @@ enc_s_encode_main_body(MRB, VALUE args)
 {
   struct enc_s_encode_main_body *p = (struct enc_s_encode_main_body *)mrb_cptr(args);
 
+//  ZSTDLIB_API size_t ZSTD_CCtx_reset(ZSTD_CCtx* cctx, ZSTD_ResetDirective reset);
+//size_t ZSTD_initCStream_advanced(ZSTD_CStream* zcs, const void* dict, size_t dictSize, ZSTD_parameters params, unsigned long long pledgedSrcSize);
+
+
   size_t s = ZSTD_initCStream_advanced(p->zstd,
                                        (NIL_P(p->dict) ? NULL : RSTRING_PTR(p->dict)),
                                        (NIL_P(p->dict) ? 0 : RSTRING_LEN(p->dict)),
