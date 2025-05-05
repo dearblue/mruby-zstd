@@ -1,3 +1,6 @@
 [submodule "contrib/zstd"]
 	path = contrib/zstd
 	url = https://github.com/facebook/zstd.git
+[submodule "contrib/mruby-buildconf"]
+	path = contrib/mruby-buildconf
+	url = https://github.com/dearblue/mruby-buildconf.git

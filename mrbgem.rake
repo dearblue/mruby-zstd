@@ -1,12 +1,13 @@
-module MrubyZstdInternals
+internals = File.join(__dir__, "contrib/mruby-buildconf/bootstrap.rb")
+using Module.new { module_eval File.read(internals), internals, 1 }
+
+using Module.new {
   refine Array do
     def configure_defined?(d)
       flatten.any? { |x| x.partition("=")[0] == d }
     end
   end
-end
-
-using MrubyZstdInternals
+}
 
 MRuby::Gem::Specification.new("mruby-zstd") do |s|
   s.summary  = "mruby bindings for zstd the data compression library (unofficial)"
@@ -25,28 +26,52 @@ MRuby::Gem::Specification.new("mruby-zstd") do |s|
     add_test_dependency "mruby-io"
   end
 
-  dirp = dir.gsub(/[\[\]\{\}\,]/) { |m| "\\#{m}" }
-  files = "contrib/zstd/lib/{common,compress,decompress,dictBuilder}/**/*.c"
-  objs.concat(Dir.glob(File.join(dirp, files)).map { |f|
-    next nil unless File.file? f
-    objfile f.relative_path_from(dir).pathmap("#{build_dir}/%X")
-  }.compact)
+  configuration_recipe(
+    "zstd",
+    {
+      libraries: %w(zstd),
+      code: <<~'CODE'
+        #include <zstd.h>
+        #include <zdict.h>
 
-  cc.include_paths.insert 0,
-    File.join(dir, "contrib/zstd/lib"),
-    File.join(dir, "contrib/zstd/lib/common"),
-    File.join(dir, "contrib/zstd/lib/compress"),
-    File.join(dir, "contrib/zstd/lib/dictBuilder")
+        #if ZSTD_VERSION_NUMBER < 10500
+        # error NEED zstd-1.5.0 or newer
+        #endif
 
-  if cc.defines.configure_defined?("ZSTD_LEGACY_SUPPORT")
-    dirp = dir.gsub(/[\[\]\{\}\,]/) { |m| "\\#{m}" }
-    files = "contrib/zstd/lib/legacy/**/*.c"
-    objs.concat(Dir.glob(File.join(dirp, files)).map { |f|
-      next nil unless File.file? f
-      objfile f.relative_path_from(dir).pathmap("#{build_dir}/%X")
-    }.compact)
+        int
+        main(int argc, char *argv[])
+        {
+          size_t ret = ZDICT_trainFromBuffer(NULL, 0, NULL, NULL, 0);
+          (void)ret;
 
-    cc.include_paths.insert 0,
-      File.join(dir, "contrib/zstd/lib/legacy")
-  end
+          return 0;
+        }
+      CODE
+    },
+    {
+      variation: "local",
+      standard: false,
+      objs: -> {
+        dirp = dir.gsub(/[\[\]\{\}\,]/) { |m| "\\#{m}" }
+        legacy = ",legacy" if cc.defines.configure_defined?("ZSTD_LEGACY_SUPPORT")
+        files = "contrib/zstd/lib/{common,compress,decompress,dictBuilder#{legacy}}/**/*.c"
+        Dir.glob(File.join(dirp, files)).map { |f|
+          next nil unless File.file? f
+          objfile f.relative_path_from(dir).pathmap("#{build_dir}/%X")
+        }.compact
+      },
+      include_paths: -> {
+        legacy = File.join(dir, "contrib/zstd/lib/legacy") if cc.defines.configure_defined?("ZSTD_LEGACY_SUPPORT")
+        [
+          File.join(dir, "contrib/zstd/lib"),
+          File.join(dir, "contrib/zstd/lib/common"),
+          File.join(dir, "contrib/zstd/lib/compress"),
+          File.join(dir, "contrib/zstd/lib/dictBuilder"),
+          *legacy
+        ]
+      }
+    },
+    abort: true,
+    default: true
+  )
 end
