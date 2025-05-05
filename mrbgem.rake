@@ -18,7 +18,6 @@ MRuby::Gem::Specification.new("mruby-zstd") do |s|
   s.homepage = "https://github.com/dearblue/mruby-zstd"
 
   add_dependency "mruby-string-ext"
-  add_dependency "mruby-error"
   add_dependency "mruby-aux", github: "dearblue/mruby-aux"
 
   unless cc.defines.configure_defined?("MRB_INT16") ||

@@ -25,7 +25,11 @@ assert("Zstd:one step decoding") do
 
   d = ""
   assert_equal d.object_id, Zstd.decode(ss, d).object_id
-  assert_equal s.byteslice(0, 20), Zstd.decode(ss, 20, d)
+  assert_equal s.byteslice(0, 20), Zstd.decode(ss, 20, d, partial: true)
+  assert_equal s.byteslice(0, 20), d
+  assert_raise RuntimeError do
+    Zstd.decode(ss, 20, d)
+  end
 end
 
 assert("Zstd:stream encoding") do

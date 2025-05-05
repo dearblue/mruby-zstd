@@ -11,7 +11,7 @@
 #include <mruby-aux.h>
 #include <mruby-aux/scanhash.h>
 
-#define ZSTD_STATIC_LINKING_ONLY 1
+//#define ZSTD_STATIC_LINKING_ONLY 1
 #include <zstd.h>
 #include <zstd_errors.h>
 
@@ -24,6 +24,11 @@
 #  define MRUBY_ZSTD_DEFAULT_PARTIAL_SIZE       (1 << 20)
 # endif
 #endif
+
+#define AUX_PP_JOIN(X, Y) AUX_PP_JOIN0(X, Y)
+#define AUX_PP_JOIN0(X, Y) X ## Y
+#define AUX_PP_COUNT_ARGS(...) AUX_PP_COUNT_ARGS0(__VA_ARGS__, 20,19,18,17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1, [*])
+#define AUX_PP_COUNT_ARGS0(A20,A19,A18,A17,A16,A15,A14,A13,A12,A11,A10,A9,A8,A7,A6,A5,A4,A3,A2,A1, A, ...) A
 
 #define AUX_MALLOC_MAX          (MRB_INT_MAX - 1)
 
@@ -41,6 +46,61 @@
 #define id_btopt                (mrb_intern_lit(mrb, "btopt"))
 #define id_btultra              (mrb_intern_lit(mrb, "btultra"))
 #define id_btultra2             (mrb_intern_lit(mrb, "btultra2"))
+
+static mrb_value
+aux_mrb_str_dup_freeze(mrb_state *mrb, mrb_value str)
+{
+  mrb_check_type(mrb, str, MRB_TT_STRING);
+  if (!mrb_frozen_p(mrb_str_ptr(str))) {
+    return mrb_obj_freeze(mrb, mrb_str_dup(mrb, str));
+  } else {
+    return str;
+  }
+}
+
+static int64_t
+aux_mrb_as_int64(mrb_state *mrb, mrb_value val)
+{
+  mrb_int n = mrb_int(mrb, val);
+
+  return (int64_t)n;
+}
+
+static uint64_t
+aux_mrb_as_uint64(mrb_state *mrb, mrb_value val)
+{
+  mrb_int n = mrb_int(mrb, val);
+  if (n < 0) {
+    mrb_raise(mrb, E_RANGE_ERROR, "wrong negative number");
+  }
+
+  return (uint64_t)n;
+}
+
+static int
+aux_mrb_to_c_int(mrb_state *mrb, mrb_value val)
+{
+  mrb_int n = mrb_int(mrb, val);
+#if MRB_INT_MAX > INT_MAX
+  if (n < INT_MIN || n > INT_MAX) {
+    mrb_raise(mrb, E_RANGE_ERROR, "out of range for c integer");
+  }
+#endif
+
+  return (int)n;
+}
+
+static struct RProc *
+aux_mrb_ensure_proc_or_nil_ptr(mrb_state *mrb, mrb_value proc)
+{
+  if (mrb_nil_p(proc)) {
+    return NULL;
+  }
+
+  mrb_check_type(mrb, proc, MRB_TT_PROC);
+
+  return mrb_proc_ptr(proc);
+}
 
 static ZSTD_strategy
 aux_to_strategy(MRB, VALUE astrategy)
@@ -75,6 +135,7 @@ aux_to_strategy(MRB, VALUE astrategy)
 static void
 aux_zstd_error(MRB, size_t status, const char *mesg)
 {
+  status = status >= 0 ? -status : status;
   int err = (int)ZSTD_getErrorCode(status);
 
   if (mesg) {
@@ -98,201 +159,220 @@ aux_check_error(MRB, size_t status, const char *mesg)
   aux_zstd_error(mrb, status, mesg);
 }
 
-static ZSTD_customMem
-aux_zstd_allocator(MRB)
-{
-  const ZSTD_customMem a = {
-    .customAlloc = (void *(*)(void *, size_t))mrb_malloc_simple,
-    .customFree = (void (*)(void *, void *))mrb_free,
-    .opaque = mrb,
-  };
-
-  return a;
-}
-
 
 /*
  * class Zstd::Encoder
  */
 
-static void
-encode_kwargs(MRB, VALUE opts, VALUE src, ZSTD_parameters *params, mrb_int *pledgedsize, VALUE *dict)
+struct encode_worker
 {
-  if (NIL_P(opts)) {
-    if (NIL_P(src)) {
-      *pledgedsize = ZSTD_CONTENTSIZE_UNKNOWN;
-    } else {
-      *pledgedsize = RSTRING_LEN(src);
+  ZSTD_CCtx *zstd;
+  mrb_value src, dest, dict;
+  int64_t maxdest;
+};
+
+static void
+make_encoder(mrb_state *mrb, struct encode_worker *p, mrb_value opts)
+{
+  p->zstd = ZSTD_createCCtx();
+  if (!p->zstd) {
+    mrb_full_gc(mrb);
+    p->zstd = ZSTD_createCCtx();
+    if (!p->zstd) {
+      mrb_raise(mrb, E_RUNTIME_ERROR, "ZSTD_createCCtx() failed (maybe out of memory)");
+    }
+  }
+
+  if (mrb_nil_p(opts)) {
+    if (!mrb_nil_p(p->src)) {
+      size_t ret = ZSTD_CCtx_setPledgedSrcSize(p->zstd, (size_t)RSTRING_LEN(p->src));
+      (void)ret;
     }
 
-    *params = ZSTD_getParams(0, *pledgedsize, 0);
-    *dict = Qnil;
+    p->dict = mrb_nil_value();
   } else {
-    uint64_t estimatedsize;
-    VALUE level, contentsize, checksum, nodictid, anestimatedsize, apledgedsize,
-          windowlog, chainlog, hashlog, searchlog, minmatch, targetlength, strategy;
+    struct {
+      mrb_value level, windowlog, hashlog, chainlog, searchlog, minmatch, targetlength, strategy,
+                enablelongdistancematching, ldmhashlog, ldmminmatch, ldmbucketsizelog, ldmhashratelog,
+                contentsizeflag, checksumflag, dictidflag, nbworkers, jobsize, overlaplog, pledgedsize;
+      //targetcblocksize         // zstd-1.5.6+
+    } a;
     struct mrbx_scanhash_arg args[] = {
-      MRBX_SCANHASH_ARGS("level",     &level,       Qnil),
-      MRBX_SCANHASH_ARGS("dict",      dict,         Qnil),
-      MRBX_SCANHASH_ARGS("windowlog",   &windowlog,     Qnil),
-      MRBX_SCANHASH_ARGS("chainlog",    &chainlog,      Qnil),
-      MRBX_SCANHASH_ARGS("hashlog",     &hashlog,       Qnil),
-      MRBX_SCANHASH_ARGS("searchlog",   &searchlog,     Qnil),
-      MRBX_SCANHASH_ARGS("minmatch",    &minmatch,      Qnil),
-      MRBX_SCANHASH_ARGS("targetlength",  &targetlength,    Qnil),
-      MRBX_SCANHASH_ARGS("strategy",    &strategy,      Qnil),
-      MRBX_SCANHASH_ARGS("contentsize",   &contentsize,     Qnil),
-      MRBX_SCANHASH_ARGS("checksum",    &checksum,      Qnil),
-      MRBX_SCANHASH_ARGS("nodictid",    &nodictid,      Qnil),
-      MRBX_SCANHASH_ARGS("estimatedsize", &anestimatedsize,   Qnil),
-      MRBX_SCANHASH_ARGS("pledgedsize",   &apledgedsize,    Qnil),
+      MRBX_SCANHASH_ARGS("level",                      &a.level,                      mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("dict",                       &p->dict,                      mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("windowlog",                  &a.windowlog,                  mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("hashlog",                    &a.hashlog,                    mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("chainlog",                   &a.chainlog,                   mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("searchlog",                  &a.searchlog,                  mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("minmatch",                   &a.minmatch,                   mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("targetlength",               &a.targetlength,               mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("strategy",                   &a.strategy,                   mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("enablelongdistancematching", &a.enablelongdistancematching, mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("ldmhashlog",                 &a.ldmhashlog,                 mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("ldmminmatch",                &a.ldmminmatch,                mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("ldmbucketsizelog",           &a.ldmbucketsizelog,           mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("ldmhashratelog",             &a.ldmhashratelog,             mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("contentsizeflag",            &a.contentsizeflag,            mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("checksumflag",               &a.checksumflag,               mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("dictidflag",                 &a.dictidflag,                 mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("nbworkers",                  &a.nbworkers,                  mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("jobsize",                    &a.jobsize,                    mrb_nil_value()),
+      MRBX_SCANHASH_ARGS("overlaplog",                 &a.overlaplog,                 mrb_nil_value()),
+      //zstd-1.5.6+
+      //MRBX_SCANHASH_ARGS("targetcblocksize",           &p->targetcblocksize,           mrb_nil_value()),
+
+      // このキーワード引数は一番最後に固定配置する必要がある
+      MRBX_SCANHASH_ARGS("pledgedsize",                &a.pledgedsize,                mrb_nil_value())
     };
 
-    if (NIL_P(src)) {
-      mrbx_scanhash(mrb, opts, Qnil, ELEMENTOF(args), args);
-      *pledgedsize = (NIL_P(apledgedsize) ? ZSTD_CONTENTSIZE_UNKNOWN : mrb_int(mrb, apledgedsize));
-      estimatedsize = (NIL_P(anestimatedsize) ? ZSTD_CONTENTSIZE_UNKNOWN : mrb_int(mrb, anestimatedsize));
-      if (*pledgedsize != ZSTD_CONTENTSIZE_UNKNOWN && estimatedsize > *pledgedsize) {
-        estimatedsize = *pledgedsize;
+    if (mrb_nil_p(p->src)) {
+      mrbx_scanhash(mrb, opts, mrb_nil_value(), ELEMENTOF(args), args);
+      if (!mrb_nil_p(a.pledgedsize)) {
+        size_t ret = ZSTD_CCtx_setPledgedSrcSize(p->zstd, aux_mrb_as_uint64(mrb, a.pledgedsize));
+        (void)ret;
       }
     } else {
-      /* NOTE: ELEMENTOF(args) - 2 によって estimatedsize と pledgedsize をないものと扱う */
-      mrbx_scanhash(mrb, opts, Qnil, ELEMENTOF(args) - 2, args);
-
-      *pledgedsize = estimatedsize = RSTRING_LEN(src);
+      mrbx_scanhash(mrb, opts, mrb_nil_value(), ELEMENTOF(args) - 1, args);
+      size_t ret = ZSTD_CCtx_setPledgedSrcSize(p->zstd, (size_t)RSTRING_LEN(p->src));
+      (void)ret;
     }
 
-    if (!NIL_P(*dict)) { mrb_check_type(mrb, *dict, MRB_TT_STRING); }
+#define SET_ENCODER_PARAMETER(...) AUX_PP_JOIN(SET_ENCODER_PARAMETER_A, AUX_PP_COUNT_ARGS(__VA_ARGS__))(__VA_ARGS__)
 
-    *params = ZSTD_getParams(
-        (NIL_P(level) ? 0 : mrb_int(mrb, level)),
-        estimatedsize,
-        (NIL_P(*dict) ? 0 : RSTRING_LEN(*dict)));
+#define SET_ENCODER_PARAMETER_A4(MRB, E, P, V) SET_ENCODER_PARAMETER_A5(MRB, E, P, V, aux_mrb_to_c_int)
 
-    if (!NIL_P(windowlog)) { params->cParams.windowLog = mrb_int(mrb, windowlog); }
-    if (!NIL_P(chainlog)) { params->cParams.chainLog = mrb_int(mrb, chainlog); }
-    if (!NIL_P(hashlog)) { params->cParams.hashLog = mrb_int(mrb, hashlog); }
-    if (!NIL_P(searchlog)) { params->cParams.searchLog = mrb_int(mrb, searchlog); }
-    if (!NIL_P(minmatch)) { params->cParams.minMatch = mrb_int(mrb, minmatch); }
-    if (!NIL_P(targetlength)) { params->cParams.targetLength = mrb_int(mrb, targetlength); }
-    if (!NIL_P(strategy)) { params->cParams.strategy = aux_to_strategy(mrb, strategy); }
+#define SET_ENCODER_PARAMETER_A5(MRB, E, P, V, C)               \
+    do {                                                        \
+      if (!mrb_nil_p(V)) {                                      \
+        size_t ret = ZSTD_CCtx_setParameter((E)->zstd, P, C(MRB, V)); \
+        aux_check_error(MRB, ret, "wrong " #P " parameter");    \
+      }                                                         \
+    } while (0)                                                 \
 
-    if (!NIL_P(contentsize)) { params->fParams.contentSizeFlag = (mrb_bool(contentsize) ? 1 : 0); }
-    if (!NIL_P(checksum)) { params->fParams.checksumFlag = (mrb_bool(checksum) ? 1 : 0); }
-    if (!NIL_P(nodictid)) { params->fParams.noDictIDFlag = (mrb_bool(nodictid) ? 1 : 0); }
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_compressionLevel,            a.level);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_windowLog,                   a.windowlog);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_hashLog,                     a.hashlog);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_chainLog,                    a.chainlog);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_searchLog,                   a.searchlog);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_minMatch,                    a.minmatch);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_targetLength,                a.targetlength);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_strategy,                    a.strategy, aux_to_strategy);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_enableLongDistanceMatching,  a.enablelongdistancematching);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_ldmHashLog,                  a.ldmhashlog);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_ldmMinMatch,                 a.ldmminmatch);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_ldmBucketSizeLog,            a.ldmbucketsizelog);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_ldmHashRateLog,              a.ldmhashratelog);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_contentSizeFlag,             a.contentsizeflag);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_checksumFlag,                a.checksumflag);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_dictIDFlag,                  a.dictidflag);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_nbWorkers,                   a.nbworkers);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_jobSize,                     a.jobsize);
+    SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_overlapLog,                  a.overlaplog);
+
+    // zstd-1.5.6+
+    //SET_ENCODER_PARAMETER(mrb, p, ZSTD_c_targetCBlockSize,            a.targetcblocksize);
+
+    if (!mrb_nil_p(p->dict)) {
+      p->dict = aux_mrb_str_dup_freeze(mrb, p->dict);
+      size_t ret = ZSTD_CCtx_loadDictionary(p->zstd, RSTRING_PTR(p->dict), (size_t)RSTRING_LEN(p->dict));
+      aux_check_error(mrb, ret, "failed ZSTD_CCtx_loadDictionary()");
+    }
   }
 }
 
 static void
-enc_s_encode_args(MRB, VALUE *src, VALUE *dest, mrb_int *maxdest, ZSTD_parameters *params, mrb_int *pledgedsize, VALUE *dict)
+enc_s_encode_setup(mrb_state *mrb, struct encode_worker *e)
 {
-  VALUE *argv;
+  mrb_value *argv;
   mrb_int argc;
   mrb_get_args(mrb, "*", &argv, &argc);
-  VALUE opts;
+  mrb_value opts;
 
   if (argc > 0 && mrb_hash_p(argv[argc - 1])) {
     opts = argv[argc - 1];
-    argc --;
+    argc--;
   } else {
-    opts = Qnil;
+    opts = mrb_nil_value();
   }
 
   switch (argc) {
   case 1:
-    *src = argv[0];
-    *maxdest = -1;
-    *dest = Qnil;
+    e->src = argv[0];
+    e->maxdest = -1;
+    e->dest = mrb_nil_value();
     break;
   case 2:
-    *src = argv[0];
+    e->src = argv[0];
     if (mrb_string_p(argv[1])) {
-      *maxdest = -1;
-      *dest = argv[1];
+      e->maxdest = -1;
+      e->dest = argv[1];
     } else {
-      *maxdest = (NIL_P(argv[1]) ? -1 : mrb_int(mrb, argv[1]));
-      *dest = Qnil;
+      e->maxdest = (mrb_nil_p(argv[1]) ? -1 : aux_mrb_as_uint64(mrb, argv[1]));
+      e->dest = mrb_nil_value();
     }
     break;
   case 3:
-    *src = argv[0];
-    *maxdest = (NIL_P(argv[1]) ? -1 : mrb_int(mrb, argv[1]));
-    *dest = argv[2];
+    e->src = argv[0];
+    e->maxdest = (mrb_nil_p(argv[1]) ? -1 : aux_mrb_as_uint64(mrb, argv[1]));
+    e->dest = argv[2];
     break;
   default:
     mrb_raisef(mrb,
                E_ARGUMENT_ERROR,
-               "wrong number of arguments (given %S, expect 1..3 with optional keywords)",
-               mrb_fixnum_value(argc));
+               "wrong number of arguments (given %i, expect 1..3)",
+               argc);
     break;
   }
 
-  mrb_check_type(mrb, *src, MRB_TT_STRING);
+  mrb_check_type(mrb, e->src, MRB_TT_STRING);
 
-  if (*maxdest < 0) {
-    *maxdest = ZSTD_compressBound(RSTRING_LEN(*src));
+  if (e->maxdest < 0) {
+    e->maxdest = ZSTD_compressBound(RSTRING_LEN(e->src));
   }
 
-  if (NIL_P(*dest)) {
-    *dest = mrb_str_buf_new(mrb, *maxdest);
+  if (mrb_nil_p(e->dest)) {
+    e->dest = mrb_str_buf_new(mrb, e->maxdest);
   } else {
-    mrb_check_type(mrb, *dest, MRB_TT_STRING);
-    mrb_str_resize(mrb, *dest, *maxdest);
+    mrb_check_type(mrb, e->dest, MRB_TT_STRING);
+    mrb_str_resize(mrb, e->dest, e->maxdest);
   }
 
-  RSTR_SET_LEN(RSTRING(*dest), 0);
+  RSTR_SET_LEN(RSTRING(e->dest), 0);
 
-  encode_kwargs(mrb, opts, *src, params, pledgedsize, dict);
+  make_encoder(mrb, e, opts);
 }
 
-struct enc_s_encode_main_body
+static mrb_value
+enc_s_encode_main(mrb_state *mrb, void *ptr)
 {
-  ZSTD_CStream *zstd;
-  VALUE src, dest;
-  mrb_int maxdest;
-  ZSTD_parameters *params;
-  mrb_int pledgedsize;
-  VALUE dict;
-};
-
-static VALUE
-enc_s_encode_main_body(MRB, VALUE args)
-{
-  struct enc_s_encode_main_body *p = (struct enc_s_encode_main_body *)mrb_cptr(args);
-
-//  ZSTDLIB_API size_t ZSTD_CCtx_reset(ZSTD_CCtx* cctx, ZSTD_ResetDirective reset);
-//size_t ZSTD_initCStream_advanced(ZSTD_CStream* zcs, const void* dict, size_t dictSize, ZSTD_parameters params, unsigned long long pledgedSrcSize);
-
-
-  size_t s = ZSTD_initCStream_advanced(p->zstd,
-                                       (NIL_P(p->dict) ? NULL : RSTRING_PTR(p->dict)),
-                                       (NIL_P(p->dict) ? 0 : RSTRING_LEN(p->dict)),
-                                       *p->params, p->pledgedsize);
-  aux_check_error(mrb, s, "ZSTD_initCStream_advanced");
+  struct encode_worker *e = (struct encode_worker *)ptr;
+  enc_s_encode_setup(mrb, e);
 
   ZSTD_inBuffer input = {
-    .src = RSTRING_PTR(p->src),
-    .size = RSTRING_LEN(p->src),
+    .src = RSTRING_PTR(e->src),
+    .size = RSTRING_LEN(e->src),
     .pos = 0,
   };
   ZSTD_outBuffer output = {
-    .dst = RSTRING_PTR(p->dest),
-    .size = (p->maxdest < 0 ? RSTRING_CAPA(p->dest) : p->maxdest),
+    .dst = RSTRING_PTR(e->dest),
+    .size = (e->maxdest < 0 ? RSTRING_CAPA(e->dest) : e->maxdest),
     .pos = 0,
   };
 
   for (;;) {
-    size_t s = ZSTD_compressStream(p->zstd, &output, &input);
-    if (input.pos >= input.size) { break; }
+    size_t s = ZSTD_compressStream(e->zstd, &output, &input);
+    if (input.pos >= input.size) {
+      break;
+    }
     aux_check_error(mrb, s, "ZSTD_compressStream");
-    if (p->maxdest >= 0) {
+    if (e->maxdest >= 0) {
       aux_zstd_error(mrb,
                      ZSTD_error_dstSize_tooSmall,
                      "ZSTD_compressStream");
     }
 
     /* expand dest */
-    s = RSTRING_CAPA(p->dest);
+    s = RSTRING_CAPA(e->dest);
     if (s >= AUX_MALLOC_MAX) {
       aux_zstd_error(mrb,
                      ZSTD_error_dstSize_tooSmall,
@@ -300,23 +380,25 @@ enc_s_encode_main_body(MRB, VALUE args)
     }
     s += MRUBY_ZSTD_DEFAULT_PARTIAL_SIZE;
     s = CLAMP_MAX(s, AUX_MALLOC_MAX);
-    mrb_str_resize(mrb, p->dest, s);
-    output.dst = RSTRING_PTR(p->dest);
-    output.size = RSTRING_CAPA(p->dest);
+    mrb_str_resize(mrb, e->dest, s);
+    output.dst = RSTRING_PTR(e->dest);
+    output.size = RSTRING_CAPA(e->dest);
   }
 
   for (;;) {
-    size_t s = ZSTD_endStream(p->zstd, &output); /* 's' is Status */
-    if (s == 0) { break; }
+    size_t s = ZSTD_endStream(e->zstd, &output); /* 's' is Status */
+    if (s == 0) {
+      break;
+    }
     aux_check_error(mrb, s, "ZSTD_endStream");
-    if (p->maxdest >= 0) {
+    if (e->maxdest >= 0) {
       aux_zstd_error(mrb,
                      ZSTD_error_dstSize_tooSmall,
                      "ZSTD_endStream");
     }
 
     /* expand dest */
-    s = RSTRING_CAPA(p->dest); /* 's' is Size */
+    s = RSTRING_CAPA(e->dest); /* 's' is Size */
     if (s >= AUX_MALLOC_MAX) {
       aux_zstd_error(mrb,
                      ZSTD_error_dstSize_tooSmall,
@@ -324,36 +406,14 @@ enc_s_encode_main_body(MRB, VALUE args)
     }
     s += MRUBY_ZSTD_DEFAULT_PARTIAL_SIZE;
     s = CLAMP_MAX(s, AUX_MALLOC_MAX);
-    mrb_str_resize(mrb, p->dest, s);
-    output.dst = RSTRING_PTR(p->dest);
-    output.size = RSTRING_CAPA(p->dest);
+    mrb_str_resize(mrb, e->dest, s);
+    output.dst = RSTRING_PTR(e->dest);
+    output.size = RSTRING_CAPA(e->dest);
   }
 
-  RSTR_SET_LEN(RSTRING(p->dest), output.pos);
+  RSTR_SET_LEN(RSTRING(e->dest), output.pos);
 
-  return Qnil;
-}
-
-static VALUE
-enc_s_encode_cleanup(MRB, VALUE args)
-{
-  struct enc_s_encode_main_body *p = (struct enc_s_encode_main_body *)mrb_cptr(args);
-
-  ZSTD_freeCStream(p->zstd);
-
-  return Qnil;
-}
-
-static void
-enc_s_encode_main(MRB, VALUE src, VALUE dest, mrb_int maxdest, ZSTD_parameters *params, mrb_int pledgedsize, VALUE dict)
-{
-  ZSTD_customMem allocator = aux_zstd_allocator(mrb);
-  ZSTD_CStream *zstd = ZSTD_createCStream_advanced(allocator);
-  if (!zstd) { mrb_raise(mrb, E_RUNTIME_ERROR, "ZSTD_initCStream_advanced failed"); }
-
-  struct enc_s_encode_main_body args = { zstd, src, dest, maxdest, params, pledgedsize, dict };
-  VALUE argsp = mrb_cptr_value(mrb, &args);
-  mrb_ensure(mrb, enc_s_encode_main_body, argsp, enc_s_encode_cleanup, argsp);
+  return mrb_nil_value();
 }
 
 /*
@@ -378,22 +438,23 @@ enc_s_encode_main(MRB, VALUE src, VALUE dest, mrb_int maxdest, ZSTD_parameters *
 static VALUE
 enc_s_encode(MRB, VALUE self)
 {
-  ZSTD_parameters params;
-  mrb_int pledgedsize;
-  VALUE src, dest, dict;
-  mrb_int maxdest;
-  enc_s_encode_args(mrb, &src, &dest, &maxdest, &params, &pledgedsize, &dict);
+  struct encode_worker worker = { NULL };
+  mrb_bool err;
+  mrb_value ret = mrb_protect_error(mrb, enc_s_encode_main, &worker, &err);
 
-  enc_s_encode_main(mrb, src, dest, maxdest, &params, pledgedsize, dict);
+  ZSTD_freeCCtx(worker.zstd);
 
-  return dest;
+  if (err) {
+    mrb_exc_raise(mrb, ret);
+  }
+
+  return worker.dest;
 }
 
 struct encoder
 {
   struct {
-    ZSTD_CStream *context;
-    ZSTD_customMem allocator;
+    ZSTD_CCtx *context;
     ZSTD_inBuffer bufin;
   } zstd;
 
@@ -441,75 +502,82 @@ encoder_set_outbuf(MRB, VALUE obj, struct encoder *p, VALUE val)
   return val;
 }
 
+struct encode_worker1
+{
+  struct encode_worker e;
+  mrb_value self;
+};
+
 static void
-enc_initialize_args(MRB, VALUE *outport, ZSTD_parameters *params, mrb_int *pledgedsize, VALUE *dict)
+enc_initialize_setup(mrb_state *mrb, struct encode_worker1 *e, mrb_value *outport)
 {
   mrb_int argc;
-  VALUE *argv;
+  mrb_value *argv;
+  mrb_value opts;
   mrb_get_args(mrb, "*", &argv, &argc);
-  VALUE opts;
 
   if (argc > 0 && mrb_hash_p(argv[argc - 1])) {
     opts = argv[argc - 1];
-    argc --;
+    argc--;
   } else {
-    opts = Qnil;
+    opts = mrb_nil_value();
   }
 
   switch (argc) {
   case 1:
+    *outport = argv[0];
     break;
   default:
     mrb_raisef(mrb,
                E_ARGUMENT_ERROR,
-               "wrong arguments (given %S, expect ``initialize(outport, opts = {})'')",
-               mrb_fixnum_value(argc));
+               "wrong number of arguments (given %i, expect `initialize(outport, **opts)')",
+               argc);
   }
 
-  *outport = argv[0];
-
-  encode_kwargs(mrb, opts, Qnil, params, pledgedsize, dict);
+  make_encoder(mrb, &e->e, opts);
 }
 
-/*
- * call-seq:
- *  initialize(outport, level = nil, opts = {})
- */
-static VALUE
-enc_initialize(MRB, VALUE self)
+static mrb_value
+enc_initialize_main(mrb_state *mrb, void *opaque)
 {
-  ZSTD_parameters params;
-  mrb_int pledgedsize;
-  VALUE dict;
-  VALUE port;
-  enc_initialize_args(mrb, &port, &params, &pledgedsize, &dict);
+  struct encode_worker1 *e = (struct encode_worker1 *)opaque;
 
-  if (DATA_PTR(self) != NULL) {
+  mrb_value outport;
+  enc_initialize_setup(mrb, e, &outport);
+
+  if (DATA_PTR(e->self) != NULL) {
     mrb_raise(mrb, E_ARGUMENT_ERROR, "wrong twice re-initialization");
   }
 
   struct encoder *p = (struct encoder *)mrb_calloc(mrb, 1, sizeof(struct encoder));
-  mrb_data_init(self, p, &encoder_type);
+  mrb_data_init(e->self, p, &encoder_type);
   p->io = Qnil;
   p->outbufsize = ZSTD_CStreamOutSize();
   if (p->outbufsize > AUX_MALLOC_MAX) { p->outbufsize = AUX_MALLOC_MAX; }
-  p->zstd.allocator = aux_zstd_allocator(mrb);
-  p->zstd.context = ZSTD_createCStream_advanced(p->zstd.allocator);
 
-  if (!p->zstd.context) {
-    mrb_raise(mrb,
-              E_RUNTIME_ERROR,
-              "ZSTD_createCStream_advanced failed");
+  encoder_set_outport(mrb, e->self, p, outport);
+  encoder_set_outbuf(mrb, e->self, p, Qnil);
+  p->zstd.context = e->e.zstd;
+  e->e.zstd = NULL;
+
+  return mrb_nil_value();
+}
+
+/*
+ * call-seq:
+ *  initialize(outport, **opts)
+ */
+static mrb_value
+enc_initialize(mrb_state *mrb, mrb_value self)
+{
+  struct encode_worker1 e = { { NULL, mrb_nil_value(), mrb_nil_value(), mrb_nil_value(), -1 }, self };
+  mrb_bool err;
+  mrb_protect_error(mrb, enc_initialize_main, &e, &err);
+
+  ZSTD_freeCCtx(e.e.zstd);
+  if (err) {
+    mrb_exc_raise(mrb, mrb_obj_value(mrb->exc));
   }
-
-  size_t s = ZSTD_initCStream_advanced(p->zstd.context,
-                                       (NIL_P(dict) ? NULL : RSTRING_PTR(dict)),
-                                       (NIL_P(dict) ? 0 : RSTRING_LEN(dict)),
-                                       params, pledgedsize);
-  aux_check_error(mrb, s, "ZSTD_initCStream_advanced");
-
-  encoder_set_outport(mrb, self, p, port);
-  encoder_set_outbuf(mrb, self, p, Qnil);
 
   return self;
 }
@@ -646,39 +714,60 @@ init_encoder(MRB, struct RClass *mZstd)
  * class Zstd::Decoder
  */
 
+struct decode_worker
+{
+  ZSTD_DCtx *zstd;
+  mrb_value src, dest, dict;
+  struct RProc *skippable;
+  intptr_t maxdest;
+  mrb_bool concat:1;
+  mrb_bool partial:1;
+};
+
 static void
-dec_s_decode_args(MRB, VALUE *src, VALUE *dest, mrb_int *maxsize, VALUE *dict)
+dec_s_decode_setup(mrb_state *mrb, struct decode_worker *w)
 {
   VALUE *argv;
   mrb_int argc;
-  mrb_get_args(mrb, "S*", src, &argv, &argc);
+  mrb_get_args(mrb, "S*", &w->src, &argv, &argc);
 
   if (argc > 0 && mrb_hash_p(argv[argc - 1])) {
-    MRBX_SCANHASH(mrb, argv[argc - 1], Qnil,
-                  MRBX_SCANHASH_ARGS("dict", dict, Qnil));
-    if (!NIL_P(*dict)) { mrb_check_type(mrb, *dict, MRB_TT_STRING); }
-    argc --;
+    struct {
+      mrb_value concat, partial, skippable;
+    } opts;
+    argc--;
+    MRBX_SCANHASH(mrb, argv[argc], mrb_nil_value(),
+                  MRBX_SCANHASH_ARGS("dict", &w->dict, mrb_nil_value()),
+                  MRBX_SCANHASH_ARGS("concat", &opts.concat, mrb_nil_value()),
+                  MRBX_SCANHASH_ARGS("partial", &opts.partial, mrb_nil_value()),
+                  MRBX_SCANHASH_ARGS("skippable", &opts.skippable, mrb_nil_value()));
+    if (!mrb_nil_p(w->dict)) {
+      mrb_check_type(mrb, w->dict, MRB_TT_STRING);
+    }
+    w->skippable = aux_mrb_ensure_proc_or_nil_ptr(mrb, opts.skippable);
+    w->concat = (mrb_nil_p(opts.concat) ? TRUE : mrb_bool(opts.concat));
+    w->partial = (mrb_nil_p(opts.partial) ? FALSE : mrb_bool(opts.partial));
   } else {
-    *dict = Qnil;
+    w->dict = mrb_nil_value();
   }
 
   switch (argc) {
   case 0:
-    *maxsize = -1;
-    *dest = Qnil;
+    w->maxdest = -1;
+    w->dest = mrb_nil_value();
     break;
   case 1:
     if (mrb_string_p(argv[0])) {
-      *maxsize = -1;
-      *dest = argv[0];
+      w->maxdest = -1;
+      w->dest = argv[0];
     } else {
-      *maxsize = mrb_int(mrb, argv[0]);
-      *dest = mrb_str_buf_new(mrb, *maxsize);
+      w->maxdest = mrb_int(mrb, argv[0]);
+      w->dest = mrb_str_buf_new(mrb, w->maxdest);
     }
     break;
   case 2:
-    *maxsize = mrb_int(mrb, argv[0]);
-    *dest = argv[1];
+    w->maxdest = mrb_int(mrb, argv[0]);
+    w->dest = argv[1];
     break;
   default:
     mrb_raisef(mrb,
@@ -688,115 +777,129 @@ dec_s_decode_args(MRB, VALUE *src, VALUE *dest, mrb_int *maxsize, VALUE *dict)
     break;
   }
 
-  size_t allocsize;
-  if (*maxsize < 0) {
+  intptr_t allocsize;
+  if (w->maxdest < 0) {
     allocsize = MRUBY_ZSTD_DEFAULT_PARTIAL_SIZE;
   } else {
-    allocsize = *maxsize;
+    allocsize = w->maxdest;
   }
 
-  if (NIL_P(*dest)) {
-    *dest = mrb_str_buf_new(mrb, allocsize);
+  if (mrb_nil_p(w->dest)) {
+    w->dest = mrb_str_buf_new(mrb, allocsize);
   } else {
-    mrb_check_type(mrb, *dest, MRB_TT_STRING);
-    mrb_str_resize(mrb, *dest, allocsize);
+    mrb_check_type(mrb, w->dest, MRB_TT_STRING);
+    mrb_str_resize(mrb, w->dest, allocsize);
+    RSTR_SET_LEN(mrb_str_ptr(w->dest), 0);
+  }
+
+  w->zstd = ZSTD_createDCtx();
+  if (!w->zstd) {
+    mrb_full_gc(mrb);
+    w->zstd = ZSTD_createDCtx();
+    if (!w->zstd) {
+      mrb_raise(mrb, E_RUNTIME_ERROR, "failed ZSTD_createDCtx() (maybe out of memory)");
+    }
+  }
+
+  // ? ZSTDLIB_API size_t ZSTD_DCtx_setParameter(ZSTD_DCtx* dctx, ZSTD_dParameter param, int value);
+
+  if (!mrb_nil_p(w->dict)) {
+    size_t s = ZSTD_DCtx_loadDictionary(w->zstd, RSTRING_PTR(w->dict), (size_t)RSTRING_LEN(w->dict));
+    aux_check_error(mrb, s, "ZSTD_DCtx_loadDictionary");
   }
 }
 
-struct decode_main_body
+static mrb_value
+dec_s_decode_main(mrb_state *mrb, void *opaque)
 {
-  ZSTD_DStream *zstd;
-  VALUE src, dest;
-  mrb_int maxsize;
-  mrb_int pos;
-};
+  struct decode_worker *w = (struct decode_worker *)opaque;
+  dec_s_decode_setup(mrb, w);
 
-static VALUE
-decode_main_body(MRB, VALUE args)
-{
-  struct decode_main_body *p = (struct decode_main_body *)mrb_cptr(args);
-
-  ZSTD_inBuffer bufin = { .src = RSTRING_PTR(p->src), .size = RSTRING_LEN(p->src), .pos = 0, };
-  ZSTD_outBuffer bufout = { .dst = RSTRING_PTR(p->dest), .size = (p->maxsize < 0 ? RSTRING_CAPA(p->dest) : p->maxsize), .pos = 0, };
+  ZSTD_inBuffer bufin = {
+    /* .src = */  RSTRING_PTR(w->src),
+    /* .size = */ RSTRING_LEN(w->src),
+    /* .pos = */  0
+  };
+  ZSTD_outBuffer bufout = {
+    /* .dst =  */ RSTRING_PTR(w->dest),
+    /* .size = */ (w->maxdest < 0 ? RSTRING_CAPA(w->dest) : w->maxdest),
+    /* .pos =  */ 0
+  };
 
   for (;;) {
-    size_t s = ZSTD_decompressStream(p->zstd, &bufout, &bufin);
-    p->pos = bufout.pos;
+    size_t s = ZSTD_decompressStream(w->zstd, &bufout, &bufin);
+    //??w->pos = bufout.pos;
     aux_check_error(mrb, s, "ZSTD_decompressStream");
 
-    if (s == 0) { break; }
-    if (p->maxsize >= 0) { break; }
-    if (bufout.pos >= AUX_MALLOC_MAX) { break; }
+    if (s > 0 && w->maxdest == bufout.pos) {
+      if (w->partial) {
+        RSTR_SET_LEN(mrb_str_ptr(w->dest), bufout.pos);
+        break;
+      } else {
+        aux_zstd_error(mrb, ZSTD_error_dstSize_tooSmall, "ZSTD_decompressStream");
+      }
+    }
+
+    if (s == 0 || w->maxdest >= 0 || bufout.pos >= AUX_MALLOC_MAX) {
+      RSTR_SET_LEN(mrb_str_ptr(w->dest), bufout.pos);
+      break;
+    }
 
     /* dest を拡張する */
 
-    s = RSTRING_CAPA(p->dest);
-    if (s >= AUX_MALLOC_MAX) { aux_zstd_error(mrb, ZSTD_error_dstSize_tooSmall, "ZSTD_decompressStream"); }
+    s = RSTRING_CAPA(w->dest);
+    if (s >= AUX_MALLOC_MAX) {
+      aux_zstd_error(mrb, ZSTD_error_dstSize_tooSmall, "ZSTD_decompressStream");
+    }
     s += MRUBY_ZSTD_DEFAULT_PARTIAL_SIZE;
     s = CLAMP_MAX(s, AUX_MALLOC_MAX);
-    mrb_str_resize(mrb, p->dest, s);
-    bufout.dst = RSTRING_PTR(p->dest);
-    bufout.size = RSTRING_CAPA(p->dest);
+    mrb_str_resize(mrb, w->dest, s);
+    RSTR_SET_LEN(mrb_str_ptr(w->dest), 0);
+    bufout.dst = RSTRING_PTR(w->dest);
+    bufout.size = RSTRING_CAPA(w->dest);
   }
 
-  return Qnil;
-}
-
-static VALUE
-decode_main_ensure(MRB, VALUE args)
-{
-  struct decode_main_body *p = (struct decode_main_body *)mrb_cptr(args);
-
-  RSTR_SET_LEN(RSTRING(p->dest), p->pos);
-  ZSTD_freeDStream(p->zstd);
-
-  return Qnil;
-}
-
-static void
-decode_main(MRB, ZSTD_DStream *zstd, VALUE src, VALUE dest, mrb_int maxsize)
-{
-  struct decode_main_body args = { zstd, src, dest, maxsize, 0 };
-  VALUE argsp = mrb_cptr_value(mrb, &args);
-  mrb_ensure(mrb, decode_main_body, argsp, decode_main_ensure, argsp);
+  return w->dest;
 }
 
 /*
- * call-seq:
- *  decode(zstd_sequence, buffer = "", opts = {}) -> buffer
- *  decode(zstd_sequence, maxsize, buffer = "", opts = {}) -> buffer
+ *  call-seq:
+ *    decode(zstd_sequence, maxsize, buffer = "", opts = {}) -> buffer
+ *    decode(zstd_sequence, buffer, opts = {}) -> buffer
  *
- * [opts (hash)]
- *  dict (nil OR string):: decompression with dictionary
+ *  [opts (hash)]
+ *    dict (string OR nil) (default: nil)::
+ *      伸長に必要な辞書を指定する。
+ *    concat (true OR false) (default: false)::
+ *      真であれば、単一のストリーム中にある複数のフレームを連結して伸長する。
+ *      偽であれば、最初のフレームのみを伸長する。
+ *    partial (true OR false) (default: false)::
+ *      真であれば、ストリームが maxsize を超えた場合に最初の部分だけを伸長する。
+ *      偽であれば、maxsize を超える場合は例外が発生する。
+ *    skippable (proc OR nil) (default: nil)::
+ *      skippable frame に遭遇した場合に呼び出されるブロックを指定する。
+ *      `proc { |controller| ... }`
  */
-static VALUE
-dec_s_decode(MRB, VALUE self)
+static mrb_value
+dec_s_decode(mrb_state *mrb, mrb_value self)
 {
-  VALUE src, dest, dict;
-  mrb_int maxsize;
-  dec_s_decode_args(mrb, &src, &dest, &maxsize, &dict);
+  struct decode_worker w = { NULL, mrb_nil_value(), mrb_nil_value(), mrb_nil_value(), 0 };
+  mrb_bool err;
+  mrb_value ret = mrb_protect_error(mrb, dec_s_decode_main, &w, &err);
 
-  ZSTD_customMem allocator = aux_zstd_allocator(mrb);
-  ZSTD_DStream *zstd = ZSTD_createDStream_advanced(allocator);
+  ZSTD_freeDCtx(w.zstd);
 
-  if (NIL_P(dict)) {
-    size_t s = ZSTD_initDStream(zstd);
-    aux_check_error(mrb, s, "ZSTD_initDStream");
-  } else {
-    size_t s = ZSTD_initDStream_usingDict(zstd, RSTRING_PTR(dict), RSTRING_LEN(dict));
-    aux_check_error(mrb, s, "ZSTD_initDStream_usingDict");
+  if (err) {
+    mrb_exc_raise(mrb, ret);
   }
 
-  decode_main(mrb, zstd, src, dest, maxsize);
-
-  return dest;
+  return w.dest;
 }
 
 struct decoder
 {
   struct {
-    ZSTD_DStream *context;
-    ZSTD_customMem allocator;
+    ZSTD_DCtx *context;
     ZSTD_inBuffer bufin;
   } zstd;
 
@@ -853,7 +956,7 @@ decoder_set_inbuf(MRB, VALUE obj, struct decoder *p, VALUE buf)
 }
 
 static void
-dec_initialize_args(MRB, VALUE *inport, VALUE *dict)
+dec_initialize_setup(mrb_state *mrb, struct decode_worker *w)
 {
   VALUE *argv;
   mrb_int argc;
@@ -861,80 +964,97 @@ dec_initialize_args(MRB, VALUE *inport, VALUE *dict)
 
   if (argc > 0 && mrb_hash_p(argv[argc - 1])) {
     MRBX_SCANHASH(mrb, argv[argc - 1], Qnil,
-                  MRBX_SCANHASH_ARGS("dict", dict, Qnil));
-    if (!NIL_P(*dict)) {
-      mrb_check_type(mrb, *dict, MRB_TT_STRING);
-      *dict = mrb_str_dup(mrb, *dict);
+                  MRBX_SCANHASH_ARGS("dict", &w->dict, Qnil));
+    if (!NIL_P(w->dict)) {
+      mrb_check_type(mrb, w->dict, MRB_TT_STRING);
+      w->dict = aux_mrb_str_dup_freeze(mrb, w->dict);
     }
-    argc --;
+    argc--;
   } else {
-    *dict = Qnil;
+    w->dict = mrb_nil_value();
   }
 
   switch (argc) {
   case 1:
-    *inport = argv[0];
+    w->src = argv[0];
     break;
   default:
     mrb_raisef(mrb,
                E_ARGUMENT_ERROR,
-               "wrong number of arguments (given %S, expect 1 with optional keywords)",
+               "wrong number of arguments (given %S, expect #initialize(inport, **opts)",
                mrb_fixnum_value(argc));
     break;
   }
+
+  w->zstd = ZSTD_createDCtx();
+  if (!w->zstd) {
+    mrb_full_gc(mrb);
+    w->zstd = ZSTD_createDCtx();
+    if (!w->zstd) {
+      mrb_raise(mrb, E_RUNTIME_ERROR, "failed ZSTD_createDCtx() (maybe out of memory)");
+    }
+  }
+
+  if (!mrb_nil_p(w->dict)) {
+    size_t s = ZSTD_DCtx_loadDictionary(w->zstd, RSTRING_PTR(w->dict), (size_t)RSTRING_LEN(w->dict));
+    aux_check_error(mrb, s, "ZSTD_DCtx_loadDictionary");
+  }
+}
+
+struct dec_initialize_main
+{
+  struct decode_worker w;
+  mrb_value self;
+};
+
+static mrb_value
+dec_initialize_main(mrb_state *mrb, void *opaque)
+{
+  struct dec_initialize_main *w = (struct dec_initialize_main *)opaque;
+  dec_initialize_setup(mrb, &w->w);
+
+  if (DATA_PTR(w->self) != NULL) {
+    mrb_raise(mrb, E_ARGUMENT_ERROR, "wrong twice re-initialization");
+  }
+
+  struct decoder *p = (struct decoder *)mrb_calloc(mrb, 1, sizeof(struct decoder));
+  mrb_data_init(w->self, p, &decoder_type);
+
+  decoder_set_inbuf(mrb, w->self, p, mrb_nil_value());
+  decoder_set_inport(mrb, w->self, p, w->w.src);
+  decoder_set_dict(mrb, w->self, p, w->w.dict);
+
+  if (mrb_string_p(w->w.src)) {
+    decoder_set_inbuf(mrb, w->self, p, mrb_nil_value());
+    p->zstd.bufin.src = RSTRING_PTR(w->w.src);
+    p->zstd.bufin.size = RSTRING_LEN(w->w.src);
+    p->zstd.bufin.pos = 0;
+  } else {
+    decoder_set_inbuf(mrb, w->self, p, mrb_str_buf_new(mrb, ZSTD_DStreamInSize()));
+    p->zstd.bufin.src = RSTRING_PTR(p->inbuf);
+    p->zstd.bufin.size = RSTRING_LEN(p->inbuf);
+    p->zstd.bufin.pos = 0;
+  }
+
+  p->zstd.context = w->w.zstd;
+
+  return mrb_nil_value();
 }
 
 /*
  * call-seq:
  *  initialize(input_stream, dict: nil) -> self
  */
-static VALUE
-dec_initialize(MRB, VALUE self)
+static mrb_value
+dec_initialize(mrb_state *mrb, mrb_value self)
 {
-  VALUE inport, dict;
-  dec_initialize_args(mrb, &inport, &dict);
+  struct dec_initialize_main w = { { NULL }, self };
+  mrb_bool err;
+  mrb_value ret = mrb_protect_error(mrb, dec_initialize_main, &w, &err);
 
-  if (DATA_PTR(self) != NULL) {
-    mrb_raise(mrb, E_ARGUMENT_ERROR, "wrong twice re-initialization");
-  }
-
-  struct decoder *p = (struct decoder *)mrb_calloc(mrb, 1, sizeof(struct decoder));
-  mrb_data_init(self, p, &decoder_type);
-  p->zstd.allocator = aux_zstd_allocator(mrb);
-  p->zstd.context = ZSTD_createDStream_advanced(p->zstd.allocator);
-
-  if (!p->zstd.context) {
-      mrb_raise(mrb,
-                E_RUNTIME_ERROR,
-                "ZSTD_createDStream_advanced failed");
-  }
-
-  decoder_set_inbuf(mrb, self, p, Qnil);
-  decoder_set_inport(mrb, self, p, inport);
-  decoder_set_dict(mrb, self, p, dict);
-
-  if (mrb_string_p(inport)) {
-    decoder_set_inbuf(mrb, self, p, Qnil);
-    p->zstd.bufin.src = RSTRING_PTR(inport);
-    p->zstd.bufin.size = RSTRING_LEN(inport);
-    p->zstd.bufin.pos = 0;
-  } else {
-#ifdef MRB_INT16
-    decoder_set_inbuf(mrb, self, p, mrb_str_buf_new(mrb, MRUBY_ZSTD_DEFAULT_PARTIAL_SIZE));
-#else
-    decoder_set_inbuf(mrb, self, p, mrb_str_buf_new(mrb, ZSTD_DStreamInSize()));
-#endif
-    p->zstd.bufin.src = RSTRING_PTR(p->inbuf);
-    p->zstd.bufin.size = RSTRING_LEN(p->inbuf);
-    p->zstd.bufin.pos = 0;
-  }
-
-  if (NIL_P(dict)) {
-    size_t s = ZSTD_initDStream(p->zstd.context);
-    aux_check_error(mrb, s, "ZSTD_initDStream");
-  } else {
-    size_t s = ZSTD_initDStream_usingDict(p->zstd.context, RSTRING_PTR(dict), RSTRING_LEN(dict));
-    aux_check_error(mrb, s, "ZSTD_initDStream_usingDict");
+  if (err) {
+    ZSTD_freeDCtx(w.w.zstd);
+    mrb_exc_raise(mrb, ret);
   }
 
   return self;
