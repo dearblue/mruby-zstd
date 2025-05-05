@@ -25,14 +25,6 @@ MRuby::Gem::Specification.new("mruby-zstd") do |s|
     add_test_dependency "mruby-io"
   end
 
-  if cc.command =~ /\b(?:g?cc|clang)\d*\b/
-    cc.flags <<
-      "-Wno-shift-negative-value" <<
-      "-Wno-shift-count-negative" <<
-      "-Wno-shift-count-overflow" <<
-      "-Wno-missing-braces"
-  end
-
   dirp = dir.gsub(/[\[\]\{\}\,]/) { |m| "\\#{m}" }
   files = "contrib/zstd/lib/{common,compress,decompress,dictBuilder}/**/*.c"
   objs.concat(Dir.glob(File.join(dirp, files)).map { |f|
