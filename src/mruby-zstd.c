@@ -552,10 +552,9 @@ enc_write(MRB, VALUE self)
   mrb_get_args(mrb, "s", &inbuf, &insize);
   struct encoder *p = getencoder(mrb, self);
   ZSTD_inBuffer input = { .src = inbuf, .size = insize, .pos = 0 };
+  int ai = mrb_gc_arena_save(mrb);
 
   while (input.pos < input.size) {
-    mrb_gc_arena_restore(mrb, 0);
-
     if (NIL_P(p->outbuf) || MRB_FROZEN_P(RSTRING(p->outbuf))) {
       encoder_set_outbuf(mrb, self, p, mrb_str_buf_new(mrb, p->outbufsize));
     } else {
@@ -567,6 +566,7 @@ enc_write(MRB, VALUE self)
     aux_check_error(mrb, s, "ZSTD_compressStream");
     RSTR_SET_LEN(RSTRING(p->outbuf), output.pos);
     FUNCALL(mrb, p->io, ID_op_lshift, p->outbuf);
+    mrb_gc_arena_restore(mrb, ai);
   }
 
   return self;
@@ -581,10 +581,9 @@ enc_flush(MRB, VALUE self)
 {
   struct encoder *p = getencoder(mrb, self);
   ZSTD_outBuffer output = { 0 };
+  int ai = mrb_gc_arena_save(mrb);
 
   do {
-    mrb_gc_arena_restore(mrb, 0);
-
     if (NIL_P(p->outbuf) || MRB_FROZEN_P(RSTRING(p->outbuf))) {
       encoder_set_outbuf(mrb, self, p, mrb_str_buf_new(mrb, p->outbufsize));
     } else {
@@ -598,6 +597,7 @@ enc_flush(MRB, VALUE self)
     aux_check_error(mrb, s, "ZSTD_flushStream");
     RSTR_SET_LEN(RSTRING(p->outbuf), output.pos);
     FUNCALL(mrb, p->io, ID_op_lshift, p->outbuf);
+    mrb_gc_arena_restore(mrb, ai);
   } while (output.pos == output.size);
 
   return self;
@@ -612,10 +612,9 @@ enc_close(MRB, VALUE self)
 {
   struct encoder *p = getencoder(mrb, self);
   ZSTD_outBuffer output = { 0 };
+  int ai = mrb_gc_arena_save(mrb);
 
   do {
-    mrb_gc_arena_restore(mrb, 0);
-
     if (NIL_P(p->outbuf) || MRB_FROZEN_P(RSTRING(p->outbuf))) {
       encoder_set_outbuf(mrb, self, p, mrb_str_buf_new(mrb, p->outbufsize));
     } else {
@@ -629,6 +628,7 @@ enc_close(MRB, VALUE self)
     aux_check_error(mrb, s, "ZSTD_endStream");
     RSTR_SET_LEN(RSTRING(p->outbuf), output.pos);
     FUNCALL(mrb, p->io, ID_op_lshift, p->outbuf);
+    mrb_gc_arena_restore(mrb, ai);
   } while (output.pos == output.size);
 
   return Qnil;
@@ -1134,7 +1134,6 @@ mrb_mruby_zstd_gem_init(MRB)
 #endif
 
   init_encoder(mrb, mZstd);
-  mrb_gc_arena_restore(mrb, 0);
   init_decoder(mrb, mZstd);
 }
 
