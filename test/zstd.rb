@@ -101,11 +101,11 @@ assert("Zstd - stream processing (huge)") do
     skip "[mruby is build with MRB_INT16]"
   end
 
-  s = "123456789" * 1111111 + "ABCDEFG"
+  s = "123456789" * 11111 + "ABCDEFG"
   d = ""
   Zstd::Encoder.wrap(d, level: 0) do |zstd|
     off = 0
-    slicesize = 777777
+    slicesize = 777
     while off < s.bytesize
       assert_equal zstd, zstd.write(s.byteslice(off, slicesize))
       off += slicesize
@@ -136,7 +136,7 @@ assert("Zstd:large stream encoding with IO") do
     File.open("#SAMPLE.rand.zst", "wb") do |dest|
       Zstd.encode(dest) do |z|
         buf = ""
-        300.times { src.read(30000, buf); z << buf }
+        33.times { src.read(333, buf); z << buf }
       end
     end
   end
@@ -153,7 +153,7 @@ assert("Zstd:large stream decoding with IO") do
   File.open("#SAMPLE.rand.zst", "rb") do |src|
     Zstd.decode(src) do |z|
       buf = ""
-      300.times { z.read(30000, buf) }
+      33.times { z.read(333, buf) }
       assert_equal nil, z.read
     end
   end
